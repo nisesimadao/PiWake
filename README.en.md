@@ -25,7 +25,7 @@ Turn your Raspberry Pi into a Wake-on-LAN relay and wake, watch, and connect to 
 - **Network scan** — one-tap adding of LAN devices discovered from the Pi's ARP table.
 - **Connection launchpad** — SSH (`ssh://` + command copied to clipboard), Chrome Remote Desktop, RDP, and custom web URLs (NAS dashboards, Proxmox, …).
 - **Host monitoring** — CPU temperature, load average, uptime, Tailscale state.
-- **PWA** — add it to your phone's home screen and it behaves like a native app.
+- **PWA** — add it to your phone's home screen and it behaves like a native app, with a service-worker offline shell.
 - **Native mobile app** — a React Native (Expo) app ships in [mobile/](mobile/); run it instantly with Expo Go.
 - **Security** — Tailscale-first (no open ports), optional bearer-token auth, built-in DNS-rebinding and CSRF protection.
 

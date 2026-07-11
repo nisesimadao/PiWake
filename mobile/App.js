@@ -9,7 +9,7 @@ import * as Clipboard from 'expo-clipboard';
 import {
   Activity, ArrowLeft, Check, ChevronRight, CircleHelp, Clock3, Cpu,
   MonitorUp, ExternalLink, Gauge, Globe2, Home, KeyRound, Monitor,
-  Pin, Plus, Power, RefreshCw, Radio, Search, Server, Settings, ShieldCheck,
+  CalendarClock, Pin, Plus, Power, RefreshCw, Radio, Search, Server, Settings, ShieldCheck,
   SlidersHorizontal, Terminal, Thermometer, Trash2,
 } from 'lucide-react-native';
 import { colors } from './src/theme';
@@ -590,6 +590,7 @@ function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, 
           <View style={s.factRow}><Text style={s.factKey}>Tailscale IP</Text><Text style={s.factValue}>{device.ip || '未設定'}</Text></View>
           <View style={[s.factRow, { borderBottomWidth: 0 }]}><Text style={s.factKey}>Last seen</Text><Text style={s.factValue}>{deviceLast(device)}</Text></View>
         </Card>
+        {!isDemo() && <ScheduleSection device={device} toast={toast} />}
         {online && (
           <>
             <SecondaryButton icon={Power} label={`Shut down ${device.name}`} danger onPress={() => shutdownDevice(device)} />
@@ -598,6 +599,74 @@ function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, 
         )}
       </ScrollView>
     </View>
+  );
+}
+
+const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function ScheduleSection({ device, toast }) {
+  const [schedules, setSchedules] = useState(null);
+  const [time, setTime] = useState('07:00');
+  const [days, setDays] = useState([1, 2, 3, 4, 5]);
+  const load = useCallback(async () => {
+    try {
+      const all = await piwakeClient.listSchedules();
+      setSchedules((all || []).filter(item => item.deviceId === device.id));
+    } catch { setSchedules([]); }
+  }, [device.id]);
+  useEffect(() => { load(); }, [load]);
+  const add = async () => {
+    if (!TIME_PATTERN.test(time.trim())) return Alert.alert('入力エラー', '時刻は 07:30 のような24時間形式で入力してください');
+    if (!days.length) return Alert.alert('入力エラー', '曜日を選択してください');
+    try {
+      await piwakeClient.addSchedule({ deviceId: device.id, time: time.trim(), days });
+      toast('スケジュールを追加しました');
+      load();
+    } catch { toast('スケジュールを追加できませんでした'); }
+  };
+  const toggle = async schedule => {
+    try { await piwakeClient.updateSchedule(schedule.id, { enabled: !schedule.enabled }); load(); }
+    catch { toast('更新できませんでした'); }
+  };
+  const remove = async schedule => {
+    try { await piwakeClient.removeSchedule(schedule.id); load(); }
+    catch { toast('削除できませんでした'); }
+  };
+  return (
+    <>
+      <SectionLabel>SCHEDULED WAKE</SectionLabel>
+      <Card>
+        {(schedules || []).map((schedule, i) => (
+          <View key={schedule.id} style={[s.deviceRow, s.rowBorder]}>
+            <CalendarClock size={18} color={colors.muted} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.connTitle}>{schedule.time}</Text>
+              <Text style={s.connDetail}>{schedule.days.map(day => DAY_LABELS[day]).join('・')}曜日</Text>
+            </View>
+            <Pressable style={[s.scheduleToggle, schedule.enabled && s.scheduleToggleOn]} onPress={() => toggle(schedule)}>
+              <Text style={[s.scheduleToggleText, schedule.enabled && { color: colors.green }]}>{schedule.enabled ? 'ON' : 'OFF'}</Text>
+            </Pressable>
+            <Pressable hitSlop={8} onPress={() => remove(schedule)}><Trash2 size={16} color={colors.muted} /></Pressable>
+          </View>
+        ))}
+        {schedules && !schedules.length && <Text style={s.emptyRow}>スケジュールはまだありません</Text>}
+        <View style={s.scheduleForm}>
+          <TextInput style={[s.input, { width: 84, textAlign: 'center' }]} value={time} onChangeText={setTime}
+            placeholder="07:30" placeholderTextColor={colors.muted} maxLength={5} autoCapitalize="none" />
+          <View style={s.dayChips}>
+            {DAY_LABELS.map((label, index) => (
+              <Pressable key={label} style={[s.dayChip, days.includes(index) && s.dayChipActive]}
+                onPress={() => setDays(current => current.includes(index) ? current.filter(d => d !== index) : [...current, index].sort())}>
+                <Text style={[s.dayChipText, days.includes(index) && { color: colors.text }]}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable style={s.scheduleAdd} onPress={add}><Plus size={15} color="#d9dce2" /><Text style={s.secondaryBtnText}>追加</Text></Pressable>
+        </View>
+        <Text style={[s.dangerNote, { paddingBottom: 12 }]}>指定した時刻（Piのローカル時刻）に自動でWakeします。</Text>
+      </Card>
+    </>
   );
 }
 
@@ -1018,6 +1087,15 @@ const s = StyleSheet.create({
   metricLabel: { color: colors.muted, fontSize: 10 },
   timelineRow: { flexDirection: 'row', alignItems: 'center', gap: 13, minHeight: 68 },
   timelineIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: colors.elevated, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  scheduleToggle: { borderWidth: 1, borderColor: colors.line, borderRadius: 10, minWidth: 46, height: 30, alignItems: 'center', justifyContent: 'center', marginRight: 4 },
+  scheduleToggleOn: { borderColor: 'rgba(66,214,138,0.5)', backgroundColor: 'rgba(66,214,138,0.08)' },
+  scheduleToggleText: { color: colors.muted, fontSize: 11, fontWeight: '700' },
+  scheduleForm: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: 13 },
+  dayChips: { flexDirection: 'row', gap: 4, flex: 1 },
+  dayChip: { width: 29, height: 29, borderRadius: 10, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  dayChipActive: { backgroundColor: '#252a31', borderColor: '#465061' },
+  dayChipText: { color: colors.muted, fontSize: 11, fontWeight: '700' },
+  scheduleAdd: { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderColor: colors.line, borderRadius: 12, height: 36, paddingHorizontal: 12 },
   fieldLabel: { color: colors.muted, fontSize: 11, marginBottom: 6 },
   fieldHint: { color: '#6d7684', fontSize: 10, lineHeight: 14, marginTop: 5 },
   input: { height: 44, borderRadius: 12, borderWidth: 1, borderColor: colors.line, backgroundColor: '#0f1215', color: colors.text, paddingHorizontal: 13, fontSize: 14 },

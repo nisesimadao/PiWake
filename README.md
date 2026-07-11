@@ -25,7 +25,7 @@
 - **ネットワークスキャン**: Pi の ARP テーブルから LAN 内デバイスを自動検出してワンタップ追加
 - **接続導線**: SSH(`ssh://` + コマンドを自動コピー)、Chrome Remote Desktop、RDP、任意の Web URL(NAS 管理画面など)
 - **ホスト監視**: CPU 温度・ロードアベレージ・稼働時間・Tailscale 状態
-- **PWA**: スマホのホーム画面に追加すればアプリのように起動
+- **PWA**: スマホのホーム画面に追加すればアプリのように起動(Service Workerによるオフラインシェル対応)
 - **ネイティブアプリ**: React Native (Expo) 製のモバイルアプリを同梱([mobile/](mobile/)。Expo Go で即起動可能)
 - **認証**: Tailscale ACL による保護を基本に、オプションで API トークン。DNS リバインディング / CSRF 対策済み
 
@@ -166,7 +166,6 @@ npm test   # node:test によるユニット + API統合テスト(依存ゼロ)
 ## 今後の拡張候補
 
 - Web Push / モバイルプッシュによるバックグラウンド通知
-- モバイルアプリへのスケジュールUI追加
 - EAS Build によるストア配布
 
 ## License

@@ -106,6 +106,22 @@ export const piwakeClient = {
     if (isDemo()) return { sent: true, demo: true };
     return request('/api/host/shutdown', { method: 'POST' });
   },
+  async listSchedules() {
+    if (isDemo()) return [];
+    return request('/api/schedules');
+  },
+  async addSchedule(payload) {
+    if (isDemo()) return null;
+    return request('/api/schedules', { method: 'POST', body: JSON.stringify(payload) });
+  },
+  async updateSchedule(scheduleId, patch) {
+    if (isDemo()) return null;
+    return request(`/api/schedules/${encodeURIComponent(scheduleId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+  async removeSchedule(scheduleId) {
+    if (isDemo()) return null;
+    return request(`/api/schedules/${encodeURIComponent(scheduleId)}`, { method: 'DELETE' });
+  },
   async getActivity() {
     if (isDemo()) return null;
     return request('/api/activity');
