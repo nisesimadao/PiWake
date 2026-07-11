@@ -1,12 +1,17 @@
 {
-  "name": "piwake-ui-prototype",
+  "name": "piwake",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "server": "node server/index.js",
+    "start": "npm run build && node server/index.js"
   },
   "dependencies": {
     "@fontsource/noto-sans-jp": "^5.2.9",
