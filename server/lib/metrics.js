@@ -38,11 +38,10 @@ export async function hostSnapshot() {
     readTailscaleIp(),
     tailscaleOnline(),
   ]);
-  const cores = os.cpus().length || 1;
   return {
     name: os.hostname(),
     tempC: temp,
-    cpuPercent: Math.min(100, Math.round((os.loadavg()[0] / cores) * 100)),
+    load1: Math.round(os.loadavg()[0] * 10) / 10,
     uptimeSeconds: Math.round(os.uptime()),
     tailscaleIp,
     tailscaleOnline: tsOnline,

@@ -1,7 +1,9 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { sendMagicPacket, parseMac } from './lib/wol.js';
 import { ping, remoteReady } from './lib/probe.js';
@@ -13,16 +15,20 @@ const PORT = Number(process.env.PIWAKE_PORT) || 8787;
 const TOKEN = process.env.PIWAKE_TOKEN || '';
 const WAKE_TIMEOUT_MS = (Number(process.env.PIWAKE_WAKE_TIMEOUT) || 90) * 1000;
 const BROADCAST = process.env.PIWAKE_BROADCAST || '255.255.255.255';
-const STATUS_INTERVAL_MS = (Number(process.env.PIWAKE_STATUS_INTERVAL) || 30) * 1000;
+const STATUS_INTERVAL_MS = (Number(process.env.PIWAKE_STATUS_INTERVAL) || 10) * 1000;
+const ALLOWED_HOSTS = (process.env.PIWAKE_ALLOWED_HOSTS || '')
+  .split(',').map(entry => entry.trim().toLowerCase()).filter(Boolean);
 const STATIC_DIR = process.env.PIWAKE_STATIC_DIR
   || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
+const JOB_RETENTION_MS = 10 * 60 * 1000;
 
 // ---------------------------------------------------------------- state
 
 let devices = readJson('devices', { version: 1, devices: [] }).devices;
 let activity = readJson('activity', []);
 const jobs = new Map();
+const sseClients = new Set();
 
 function persistDevices() {
   writeJson('devices', { version: 1, devices });
@@ -39,6 +45,22 @@ function publicDevice(device) {
   return { id, name, kind, mac, ip, localIp, location, user, status: status || 'offline', lastSeenAt: lastSeenAt || null };
 }
 
+// ------------------------------------------------- server-sent events
+
+function broadcast(event, data) {
+  if (!sseClients.size) return;
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) client.write(payload);
+}
+
+function broadcastDevices() {
+  broadcast('devices', devices.map(publicDevice));
+}
+
+setInterval(() => {
+  for (const client of sseClients) client.write(': ping\n\n');
+}, 25000);
+
 // ------------------------------------------------------- status poller
 
 let polling = false;
@@ -46,12 +68,20 @@ async function refreshStatuses() {
   if (polling) return;
   polling = true;
   try {
-    await Promise.all(devices.map(async device => {
-      const alive = await ping(device.ip) || await ping(device.localIp);
-      device.status = alive ? 'online' : 'offline';
+    let changed = false;
+    await Promise.all(devices.map(async snapshot => {
+      const [tailscaleAlive, lanAlive] = await Promise.all([ping(snapshot.ip), ping(snapshot.localIp)]);
+      const alive = tailscaleAlive || lanAlive;
+      // Re-find by id: the array may have been replaced by add/delete while we pinged.
+      const device = devices.find(item => item.id === snapshot.id);
+      if (!device) return;
+      const status = alive ? 'online' : 'offline';
+      if (device.status !== status) changed = true;
+      device.status = status;
       if (alive) device.lastSeenAt = new Date().toISOString();
     }));
     persistDevices();
+    if (changed) broadcastDevices();
   } finally {
     polling = false;
   }
@@ -61,15 +91,24 @@ refreshStatuses();
 
 // ------------------------------------------------------------ wake job
 
+function retireJob(job) {
+  setTimeout(() => jobs.delete(job.id), JOB_RETENTION_MS).unref?.();
+}
+
 async function runWakeJob(job, device) {
-  const update = state => { job.state = state; job.updatedAt = new Date().toISOString(); };
+  const update = state => {
+    job.state = state;
+    job.updatedAt = new Date().toISOString();
+    broadcast('job', job);
+  };
   const deadline = Date.now() + WAKE_TIMEOUT_MS;
   const reachHost = device.ip || device.localIp;
   try {
     while (Date.now() < deadline) {
-      if (job.state === 'cancelled') return;
+      if (job.state === 'cancelled') { retireJob(job); return; }
       if (job.state === 'packet_sent') {
-        if (await ping(device.localIp) || await ping(device.ip)) update('responding');
+        const [lan, ts] = await Promise.all([ping(device.localIp), ping(device.ip)]);
+        if (lan || ts) update('responding');
       } else if (job.state === 'responding') {
         if (!device.ip || await ping(device.ip)) update('reachable');
       } else if (job.state === 'reachable') {
@@ -78,7 +117,9 @@ async function runWakeJob(job, device) {
           device.status = 'online';
           device.lastSeenAt = new Date().toISOString();
           persistDevices();
+          broadcastDevices();
           logActivity(device.name, 'Wake succeeded', 'success');
+          retireJob(job);
           return;
         }
       }
@@ -91,6 +132,39 @@ async function runWakeJob(job, device) {
     job.error = error.message;
     logActivity(device.name, 'Wake failed', 'warning');
   }
+  retireJob(job);
+}
+
+// ------------------------------------------------------------ shutdown
+
+function shutdownOverSsh(device) {
+  const address = device.ip || device.localIp;
+  if (!address) return Promise.resolve({ sent: false, error: 'No reachable address configured.' });
+  const target = `${device.user || 'pi'}@${address}`;
+  const command = 'sudo -n shutdown -h now || shutdown -h now || shutdown /s /t 0';
+  return new Promise(resolve => {
+    execFile('ssh', [
+      '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=accept-new',
+      target, command,
+    ], { timeout: 15000 }, error => {
+      // A successful shutdown usually kills the connection (non-zero exit).
+      // Exit code 255 means ssh itself failed (auth/unreachable).
+      if (error && error.code === 255) {
+        resolve({ sent: false, error: `SSH connection to ${target} failed. Set up key-based SSH from the Pi first.` });
+      } else {
+        resolve({ sent: true, target });
+      }
+    });
+  });
+}
+
+function shutdownSelf() {
+  return new Promise(resolve => {
+    execFile('sudo', ['-n', 'shutdown', '-h', 'now'], { timeout: 10000 }, error => {
+      if (error) resolve({ sent: false, error: 'shutdown failed. Allow it in sudoers: `<user> ALL=(root) NOPASSWD: /usr/sbin/shutdown`' });
+      else resolve({ sent: true });
+    });
+  });
 }
 
 // -------------------------------------------------------------- router
@@ -107,39 +181,89 @@ function json(res, status, body) {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
+    let rejected = false;
     req.on('data', chunk => {
+      if (rejected) return;
       data += chunk;
-      if (data.length > 64 * 1024) { reject(new Error('Body too large')); req.destroy(); }
+      if (data.length > 64 * 1024) {
+        rejected = true;
+        req.removeAllListeners('data');
+        req.resume();
+        reject(Object.assign(new Error('Body too large'), { status: 413 }));
+      }
     });
     req.on('end', () => {
+      if (rejected) return;
       try { resolve(data ? JSON.parse(data) : {}); }
-      catch { reject(new Error('Invalid JSON body')); }
+      catch { reject(Object.assign(new Error('Invalid JSON body'), { status: 400 })); }
     });
     req.on('error', reject);
   });
 }
 
-function authorized(req) {
+function authorized(req, url) {
   if (!TOKEN) return true;
   const header = req.headers.authorization || '';
-  const presented = header.startsWith('Bearer ') ? header.slice(7) : '';
+  let presented = header.startsWith('Bearer ') ? header.slice(7) : '';
+  // EventSource cannot set headers, so /api/events accepts ?token= as well.
+  if (!presented && url.pathname === '/api/events') presented = url.searchParams.get('token') || '';
   if (presented.length !== TOKEN.length) return false;
   return crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(TOKEN));
 }
 
+// Reject requests whose Host header is not this machine — blocks DNS
+// rebinding, where an attacker's domain resolves to the Pi's IP and their
+// page becomes "same origin" with this API in the victim's browser.
+function hostAllowed(req) {
+  const raw = (req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
+  if (!raw) return false;
+  if (raw === 'localhost' || raw.startsWith('[')) return true;
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(raw)) return true; // LAN / Tailscale IP literal
+  const hostname = os.hostname().toLowerCase();
+  if (raw === hostname || raw === `${hostname}.local`) return true;
+  if (raw.endsWith('.ts.net')) return true; // Tailscale MagicDNS
+  return ALLOWED_HOSTS.includes(raw);
+}
+
+function handleEvents(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-store',
+    Connection: 'keep-alive',
+  });
+  res.write(': connected\n\n');
+  sseClients.add(res);
+  req.on('close', () => sseClients.delete(res));
+}
+
 async function handleApi(req, res, url) {
   const segments = url.pathname.split('/').filter(Boolean); // ['api', ...]
-  const route = `${req.method} /${segments.slice(0, 2).join('/')}`;
 
   if (req.method === 'GET' && url.pathname === '/api/health') {
     return json(res, 200, { ok: true, mode: 'api', version: VERSION, authRequired: Boolean(TOKEN) });
   }
-  if (!authorized(req)) {
+  if (!authorized(req, url)) {
     return json(res, 401, { error: 'Unauthorized. Set the API token in Settings.' });
+  }
+  // Forms can't send application/json without a CORS preflight, so requiring
+  // it on mutating requests blocks cross-origin CSRF (e.g. text/plain forms).
+  if (['POST', 'PATCH'].includes(req.method) && !(req.headers['content-type'] || '').includes('application/json')) {
+    return json(res, 415, { error: 'Content-Type must be application/json.' });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/events') {
+    return handleEvents(req, res);
   }
 
   if (req.method === 'GET' && url.pathname === '/api/host') {
     return json(res, 200, await hostSnapshot());
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/host/shutdown') {
+    const result = await shutdownSelf();
+    if (!result.sent) return json(res, 500, { error: result.error });
+    logActivity(os.hostname(), 'Host shutdown requested', 'warning');
+    return json(res, 202, result);
   }
 
   if (req.method === 'GET' && url.pathname === '/api/devices') {
@@ -168,6 +292,7 @@ async function handleApi(req, res, url) {
     devices.push(device);
     persistDevices();
     logActivity(device.name, 'Device added', 'neutral');
+    broadcastDevices();
     refreshStatuses();
     return json(res, 201, publicDevice(device));
   }
@@ -180,6 +305,7 @@ async function handleApi(req, res, url) {
       devices = devices.filter(item => item.id !== device.id);
       persistDevices();
       logActivity(device.name, 'Device removed', 'neutral');
+      broadcastDevices();
       return json(res, 204, null);
     }
 
@@ -192,6 +318,7 @@ async function handleApi(req, res, url) {
         if (key in body) device[key] = String(body[key] || '').trim() || null;
       }
       persistDevices();
+      broadcastDevices();
       return json(res, 200, publicDevice(device));
     }
 
@@ -208,6 +335,13 @@ async function handleApi(req, res, url) {
       logActivity(device.name, 'Magic packet sent', 'neutral');
       runWakeJob(job, device);
       return json(res, 202, { jobId: job.id, deviceId: device.id, state: job.state });
+    }
+
+    if (req.method === 'POST' && segments[3] === 'shutdown') {
+      const result = await shutdownOverSsh(device);
+      if (!result.sent) return json(res, 502, { error: result.error });
+      logActivity(device.name, 'Shutdown requested', 'neutral');
+      return json(res, 202, result);
     }
   }
 
@@ -233,7 +367,7 @@ async function handleApi(req, res, url) {
     return json(res, 200, neighbours.map(entry => ({ ...entry, managed: managed.has(entry.mac) })));
   }
 
-  return json(res, 404, { error: `No handler for ${route}` });
+  return json(res, 404, { error: `No handler for ${req.method} ${url.pathname}` });
 }
 
 // ------------------------------------------------------- static assets
@@ -268,7 +402,9 @@ function serveStatic(req, res, url) {
     'Content-Type': MIME[ext] || 'application/octet-stream',
     'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
   });
-  fs.createReadStream(filePath).pipe(res);
+  const stream = fs.createReadStream(filePath);
+  stream.on('error', () => { if (!res.headersSent) res.writeHead(500); res.end(); });
+  stream.pipe(res);
 }
 
 // --------------------------------------------------------------- serve
@@ -276,17 +412,19 @@ function serveStatic(req, res, url) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   try {
+    if (!hostAllowed(req)) return json(res, 403, { error: 'Host not allowed. Add it to PIWAKE_ALLOWED_HOSTS.' });
     if (url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
     if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, url);
     res.writeHead(405);
     res.end();
   } catch (error) {
-    json(res, error.message === 'Invalid JSON body' ? 400 : 500, { error: error.message });
+    if (!res.headersSent) json(res, error.status || 500, { error: error.message });
+    else res.end();
   }
 });
 
 server.listen(PORT, () => {
-  console.log(`PiWake API listening on http://0.0.0.0:${PORT}`);
+  console.log(`PiWake API v${VERSION} listening on http://0.0.0.0:${PORT}`);
   console.log(`Data directory: ${dataDir}`);
   console.log(`Auth: ${TOKEN ? 'bearer token required' : 'open (protect via Tailscale ACL, or set PIWAKE_TOKEN)'}`);
 });

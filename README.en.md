@@ -1,0 +1,88 @@
+# PiWake
+
+<p>
+  <img alt="Node.js 18+" src="https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
+  <img alt="Zero server dependencies" src="https://img.shields.io/badge/server%20deps-zero-f04454">
+  <img alt="PWA ready" src="https://img.shields.io/badge/PWA-ready-5a0fc8">
+</p>
+
+Turn your Raspberry Pi into a Wake-on-LAN relay and wake, watch, and connect to your home machines from anywhere — over Tailscale, with **zero exposed ports**.
+
+**日本語 README: [README.md](README.md)**
+
+| Desktop | Mobile |
+| --- | --- |
+| ![PiWake desktop](docs/screenshot-desktop.png) | <img src="docs/screenshot-mobile.png" width="260" alt="PiWake mobile"> |
+
+## Features
+
+- **Wake-on-LAN with staged tracking** — the Pi sends the magic packet, then walks the wake through `packet sent → responding → reachable over Tailscale → SSH/RDP ready`, with a browser notification when the machine is up. Not just fire-and-forget.
+- **Remote shutdown** — power machines off over key-based SSH from the Pi; shut down the Pi itself too.
+- **Live device status** — 10-second ping polling pushed to the UI over Server-Sent Events.
+- **Network scan** — one-tap adding of LAN devices discovered from the Pi's ARP table.
+- **Connection launchpad** — SSH (`ssh://` + command copied to clipboard), Chrome Remote Desktop, RDP, and custom web URLs (NAS dashboards, Proxmox, …).
+- **Host monitoring** — CPU temperature, load average, uptime, Tailscale state.
+- **PWA** — add it to your phone's home screen and it behaves like a native app.
+- **Security** — Tailscale-first (no open ports), optional bearer-token auth, built-in DNS-rebinding and CSRF protection.
+
+## Install on the Pi
+
+Requirements: any Linux (Raspberry Pi OS recommended), Node.js 18+, Tailscale.
+
+```bash
+git clone https://github.com/nisesimadao/PiWake.git
+cd PiWake
+bash deploy/install.sh
+```
+
+The installer builds the web console, writes `/etc/default/piwake`, and registers a `piwake` systemd service (state lives in `/var/lib/piwake`). Then open `http://<pi-tailscale-ip>:8787` from any device on your tailnet.
+
+The API server uses **only the Node.js standard library** — http, dgram, net, child_process. No npm dependencies to audit.
+
+### Configuration (`/etc/default/piwake`)
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PIWAKE_PORT` | `8787` | API / web console port |
+| `PIWAKE_TOKEN` | (empty) | Bearer token (recommended — `openssl rand -hex 16`; enter the same value in Settings) |
+| `PIWAKE_BROADCAST` | `255.255.255.255` | Magic packet broadcast address, e.g. `192.168.1.255` |
+| `PIWAKE_WAKE_TIMEOUT` | `90` | Seconds to wait for a device to come up |
+| `PIWAKE_STATUS_INTERVAL` | `10` | Device ping interval in seconds |
+| `PIWAKE_ALLOWED_HOSTS` | (empty) | Extra allowed Host headers (comma-separated); IPs, own hostname and MagicDNS are allowed automatically |
+
+### Remote shutdown prerequisites
+
+- **Managed PCs**: set up key-based SSH from the Pi (`ssh-copy-id user@pc`); on Linux allow passwordless `sudo shutdown`.
+- **The Pi itself**: `pi ALL=(root) NOPASSWD: /usr/sbin/shutdown` in sudoers.
+
+## Development
+
+```bash
+npm install
+npm run dev        # demo mode — full UI without any API
+npm run server     # API only (http://localhost:8787)
+npm start          # build + serve API and web console
+```
+
+Production builds talk to the same-origin API by default; demo mode only activates in `npm run dev` (without an API URL) or with `VITE_PIWAKE_MODE=demo`.
+
+## API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/health` | Liveness (no auth; reports `authRequired`) |
+| `GET` | `/api/events` | SSE stream (device status & wake job updates) |
+| `GET` | `/api/host` | Host metrics |
+| `POST` | `/api/host/shutdown` | Shut down the Pi |
+| `GET/POST` | `/api/devices` | List / add devices |
+| `PATCH/DELETE` | `/api/devices/:id` | Update / remove a device |
+| `POST` | `/api/devices/:id/wake` | Send magic packet, start a wake job |
+| `POST` | `/api/devices/:id/shutdown` | Shut down over SSH |
+| `GET/DELETE` | `/api/jobs/:id` | Wake job progress / cancel |
+| `GET` | `/api/activity` | Recent activity (last 50) |
+| `GET` | `/api/scan` | LAN scan from the ARP table |
+
+## License
+
+[MIT](LICENSE)

@@ -1,11 +1,11 @@
 import dgram from 'node:dgram';
 
 export function parseMac(mac) {
-  const bytes = String(mac).trim().split(/[:\-]/).map(part => parseInt(part, 16));
-  if (bytes.length !== 6 || bytes.some(byte => Number.isNaN(byte) || byte < 0 || byte > 255)) {
+  const parts = String(mac).trim().split(/[:\-]/);
+  if (parts.length !== 6 || parts.some(part => !/^[0-9a-fA-F]{2}$/.test(part))) {
     throw new Error(`Invalid MAC address: ${mac}`);
   }
-  return Buffer.from(bytes);
+  return Buffer.from(parts.map(part => parseInt(part, 16)));
 }
 
 export function sendMagicPacket(mac, { address = '255.255.255.255', port = 9 } = {}) {

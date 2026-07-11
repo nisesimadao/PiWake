@@ -1,4 +1,9 @@
-const apiBaseUrl = (import.meta.env.VITE_PIWAKE_API_URL || '').replace(/\/$/, '');
+// Production builds default to the same-origin API (the Pi serves both the UI
+// and /api/*). Demo mode is only active in `npm run dev` without an API URL,
+// or when explicitly requested via VITE_PIWAKE_MODE=demo.
+const configured = (import.meta.env.VITE_PIWAKE_API_URL || '').trim().replace(/\/$/, '');
+const demoMode = import.meta.env.VITE_PIWAKE_MODE === 'demo' || (import.meta.env.DEV && !configured);
+const apiBaseUrl = configured; // '' = same origin
 const TOKEN_KEY = 'piwake.api-token.v1';
 
 export function getApiToken() {
@@ -28,50 +33,64 @@ async function request(path, options = {}) {
 }
 
 export const runtime = {
-  mode: apiBaseUrl ? 'api' : 'demo',
-  label: apiBaseUrl ? 'PiWake API' : 'Demo adapter',
-  apiBaseUrl: apiBaseUrl || null,
+  mode: demoMode ? 'demo' : 'api',
+  label: demoMode ? 'Demo adapter' : 'PiWake API',
+  apiBaseUrl: demoMode ? null : (apiBaseUrl || 'same-origin'),
 };
+
+export function eventsUrl() {
+  if (demoMode) return null;
+  const token = getApiToken();
+  return `${apiBaseUrl}/api/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+}
 
 export const piwakeClient = {
   async checkHealth() {
-    if (!apiBaseUrl) return { ok: true, mode: 'demo' };
+    if (demoMode) return { ok: true, mode: 'demo' };
     return request('/api/health');
   },
   async getHost() {
-    if (!apiBaseUrl) return null;
+    if (demoMode) return null;
     return request('/api/host');
   },
   async listDevices() {
-    if (!apiBaseUrl) return null;
+    if (demoMode) return null;
     return request('/api/devices');
   },
   async addDevice(device) {
-    if (!apiBaseUrl) return device;
+    if (demoMode) return device;
     return request('/api/devices', { method: 'POST', body: JSON.stringify(device) });
   },
   async removeDevice(deviceId) {
-    if (!apiBaseUrl) return null;
+    if (demoMode) return null;
     return request(`/api/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
   },
   async wakeDevice(device) {
-    if (!apiBaseUrl) return { jobId: null, deviceId: device.id };
+    if (demoMode) return { jobId: null, deviceId: device.id };
     return request(`/api/devices/${encodeURIComponent(device.id)}/wake`, { method: 'POST' });
   },
   async getWakeJob(jobId) {
-    if (!apiBaseUrl) return null;
+    if (demoMode) return null;
     return request(`/api/jobs/${encodeURIComponent(jobId)}`);
   },
   async cancelWakeJob(jobId) {
-    if (!apiBaseUrl || !jobId) return null;
+    if (demoMode || !jobId) return null;
     return request(`/api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
   },
+  async shutdownDevice(deviceId) {
+    if (demoMode) return { sent: true, demo: true };
+    return request(`/api/devices/${encodeURIComponent(deviceId)}/shutdown`, { method: 'POST' });
+  },
+  async shutdownHost() {
+    if (demoMode) return { sent: true, demo: true };
+    return request('/api/host/shutdown', { method: 'POST' });
+  },
   async getActivity() {
-    if (!apiBaseUrl) return null;
+    if (demoMode) return null;
     return request('/api/activity');
   },
   async scanNetwork() {
-    if (!apiBaseUrl) return null;
+    if (demoMode) return null;
     return request('/api/scan');
   },
 };

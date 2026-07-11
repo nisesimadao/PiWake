@@ -29,7 +29,8 @@ if [ ! -f "$ENV_FILE" ]; then
   sudo tee "$ENV_FILE" >/dev/null <<EOF
 # PiWake configuration
 PIWAKE_PORT=8787
-# Optional bearer token. Leave empty to rely on Tailscale ACLs only.
+# Optional bearer token (recommended). Generate one with: openssl rand -hex 16
+# Leave empty to rely on Tailscale ACLs only.
 PIWAKE_TOKEN=
 # Broadcast address for magic packets, e.g. 192.168.1.255
 PIWAKE_BROADCAST=255.255.255.255
@@ -50,10 +51,11 @@ Type=simple
 User=${RUN_USER}
 WorkingDirectory=${REPO_DIR}
 EnvironmentFile=-${ENV_FILE}
+Environment=PIWAKE_DATA_DIR=/var/lib/piwake
+StateDirectory=piwake
 ExecStart=$(command -v node) ${REPO_DIR}/server/index.js
 Restart=on-failure
 RestartSec=3
-NoNewPrivileges=true
 ProtectSystem=full
 
 [Install]
@@ -61,7 +63,8 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now "$SERVICE_NAME"
+sudo systemctl enable "$SERVICE_NAME"
+sudo systemctl restart "$SERVICE_NAME"
 
 echo
 echo "PiWake is running."
