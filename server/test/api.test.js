@@ -103,6 +103,16 @@ test('device CRUD with validation', async () => {
   });
   assert.equal(emptyName.status, 400);
 
+  const unsafeUser = await fetch(`${open.base}/api/devices/${device.id}`, {
+    method: 'PATCH', headers: jsonHeaders(), body: JSON.stringify({ user: '-oProxyCommand=touch /tmp/pwned' }),
+  });
+  assert.equal(unsafeUser.status, 400);
+
+  const stringBoolean = await fetch(`${open.base}/api/devices/${device.id}`, {
+    method: 'PATCH', headers: jsonHeaders(), body: JSON.stringify({ pinned: 'false' }),
+  });
+  assert.equal(stringBoolean.status, 400);
+
   const removed = await fetch(`${open.base}/api/devices/${device.id}`, { method: 'DELETE' });
   assert.equal(removed.status, 204);
 });
@@ -140,6 +150,12 @@ test('schedule CRUD with validation, removed with its device', async () => {
     body: JSON.stringify({ deviceId: 'nope', time: '07:30', days: [1] }),
   });
   assert.equal(badDevice.status, 400);
+
+  const coercedDays = await fetch(`${open.base}/api/schedules`, {
+    method: 'POST', headers: jsonHeaders(),
+    body: JSON.stringify({ deviceId: device.id, time: '07:30', days: ['1'], enabled: 'false' }),
+  });
+  assert.equal(coercedDays.status, 400);
 
   const created = await fetch(`${open.base}/api/schedules`, {
     method: 'POST', headers: jsonHeaders(),

@@ -272,7 +272,9 @@ function PiWakeApp() {
       return () => clearTimeout(id);
     }
     if (!wakeJobId) return;
-    const id = setInterval(async () => {
+    let cancelled = false;
+    let timer;
+    const poll = async () => {
       if (Date.now() - wakeStartRef.current > WAKE_UI_DEADLINE_MS) {
         setWakeFailed(true);
         toast('Wakeがタイムアウトしました');
@@ -293,8 +295,10 @@ function PiWakeApp() {
           toast('Wakeジョブが見つかりません');
         }
       }
-    }, 1500);
-    return () => clearInterval(id);
+      if (!cancelled) timer = setTimeout(poll, 1500);
+    };
+    timer = setTimeout(poll, 1500);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [view, step, wakeJobId, wakeFailed, refresh, toast]);
 
   useEffect(() => {
@@ -951,11 +955,19 @@ function SettingsView({ firstRun, onSaved, onDemo, setView, toast, apiIssue }) {
       return Alert.alert('入力エラー', 'URLは http:// から始まる形式で入力してください（例: http://100.100.1.1:8787）');
     }
     setChecking(true);
+    const previous = getConfig();
     await saveConfig({ url: trimmed, token });
+    let connected = !trimmed;
     if (trimmed) {
       try {
         const health = await piwakeClient.checkHealth();
-        toast(health.authRequired && !token.trim() ? '接続OK。ただしAPIトークンが必要です' : 'PiWake APIに接続しました');
+        if (health.authRequired && !token.trim()) {
+          toast('APIトークンが必要です');
+        } else {
+          if (health.authRequired) await piwakeClient.listDevices();
+          connected = true;
+          toast('PiWake APIに接続しました');
+        }
       } catch (error) {
         toast(error.status === 401 ? 'APIトークンが正しくありません' : 'APIへ接続できませんでした。URLを確認してください');
       }
@@ -963,7 +975,8 @@ function SettingsView({ firstRun, onSaved, onDemo, setView, toast, apiIssue }) {
       toast('デモモードに切り替えました');
     }
     setChecking(false);
-    onSaved();
+    if (connected) onSaved();
+    else await saveConfig(previous);
   };
   return (
     <View style={{ flex: 1 }}>

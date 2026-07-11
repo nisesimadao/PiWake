@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { sendMagicPacket, parseMac } from './lib/wol.js';
@@ -161,12 +162,35 @@ function startWakeJob(device) {
 }
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+const SSH_USER_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]{0,31}$/;
+const HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
+
+function validateDeviceFields(body, { partial = false } = {}) {
+  if ((!partial || 'name' in body)) {
+    if (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 48) {
+      return { error: 'A device name (max 48 chars) is required.' };
+    }
+  }
+  for (const key of ['ip', 'localIp']) {
+    if (!(key in body) || body[key] == null || body[key] === '') continue;
+    if (typeof body[key] !== 'string') return { error: `${key} must be a valid IP address or hostname.` };
+    const value = body[key].trim();
+    if (!net.isIP(value) && !HOSTNAME_PATTERN.test(value)) return { error: `${key} must be a valid IP address or hostname.` };
+  }
+  if ('user' in body && body.user != null && body.user !== '') {
+    if (typeof body.user !== 'string' || !SSH_USER_PATTERN.test(body.user.trim())) {
+      return { error: 'user must be a safe SSH username (letters, numbers, dot, dash, underscore; max 32).' };
+    }
+  }
+  if ('pinned' in body && typeof body.pinned !== 'boolean') return { error: 'pinned must be a boolean.' };
+  return {};
+}
 
 function validateSchedule(body) {
   const time = String(body.time || '').trim();
   if (!TIME_PATTERN.test(time)) return { error: 'time must be HH:MM (24h).' };
-  const days = Array.isArray(body.days) ? [...new Set(body.days.map(Number))] : [];
-  if (!days.length || days.some(day => !Number.isInteger(day) || day < 0 || day > 6)) {
+  const days = Array.isArray(body.days) ? [...new Set(body.days)] : [];
+  if (!days.length || days.some(day => typeof day !== 'number' || !Number.isInteger(day) || day < 0 || day > 6)) {
     return { error: 'days must be a non-empty array of 0 (Sun) to 6 (Sat).' };
   }
   return { time, days: days.sort((a, b) => a - b) };
@@ -197,6 +221,7 @@ async function checkSchedules() {
   if (dirty) persistSchedules();
 }
 setInterval(checkSchedules, 20000);
+checkSchedules();
 
 // ------------------------------------------------------------ shutdown
 
@@ -337,7 +362,8 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     const name = String(body.name || '').trim();
     const mac = String(body.mac || '').trim().toUpperCase();
-    if (!name || name.length > 48) return json(res, 400, { error: 'A device name (max 48 chars) is required.' });
+    const fields = validateDeviceFields(body);
+    if (fields.error) return json(res, 400, { error: fields.error });
     try { parseMac(mac); } catch { return json(res, 400, { error: 'A valid MAC address is required.' }); }
     if (devices.some(device => device.mac === mac)) return json(res, 409, { error: 'A device with this MAC address already exists.' });
     const device = {
@@ -380,13 +406,12 @@ async function handleApi(req, res, url) {
 
     if (req.method === 'PATCH' && segments.length === 3) {
       const body = await readBody(req);
-      if ('name' in body && !String(body.name || '').trim()) {
-        return json(res, 400, { error: 'A device name is required.' });
-      }
+      const fields = validateDeviceFields(body, { partial: true });
+      if (fields.error) return json(res, 400, { error: fields.error });
       for (const key of ['name', 'ip', 'localIp', 'location', 'user']) {
         if (key in body) device[key] = String(body[key] || '').trim() || null;
       }
-      if ('pinned' in body) device.pinned = Boolean(body.pinned);
+      if ('pinned' in body) device.pinned = body.pinned;
       persistDevices();
       broadcastDevices();
       return json(res, 200, publicDevice(device));
@@ -426,6 +451,7 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/schedules') {
     if (schedules.length >= 50) return json(res, 400, { error: 'Too many schedules (max 50).' });
     const body = await readBody(req);
+    if ('enabled' in body && typeof body.enabled !== 'boolean') return json(res, 400, { error: 'enabled must be a boolean.' });
     const device = devices.find(item => item.id === body.deviceId);
     if (!device) return json(res, 400, { error: 'deviceId must reference an existing device.' });
     const validated = validateSchedule(body);
@@ -450,13 +476,14 @@ async function handleApi(req, res, url) {
 
     if (req.method === 'PATCH') {
       const body = await readBody(req);
+      if ('enabled' in body && typeof body.enabled !== 'boolean') return json(res, 400, { error: 'enabled must be a boolean.' });
       if ('time' in body || 'days' in body) {
         const validated = validateSchedule({ time: body.time ?? schedule.time, days: body.days ?? schedule.days });
         if (validated.error) return json(res, 400, { error: validated.error });
         schedule.time = validated.time;
         schedule.days = validated.days;
       }
-      if ('enabled' in body) schedule.enabled = Boolean(body.enabled);
+      if ('enabled' in body) schedule.enabled = body.enabled;
       persistSchedules();
       return json(res, 200, schedule);
     }
