@@ -24,6 +24,7 @@
 - **接続導線**: SSH(`ssh://` + コマンドを自動コピー)、Chrome Remote Desktop、RDP、任意の Web URL(NAS 管理画面など)
 - **ホスト監視**: CPU 温度・ロードアベレージ・稼働時間・Tailscale 状態
 - **PWA**: スマホのホーム画面に追加すればアプリのように起動
+- **ネイティブアプリ**: React Native (Expo) 製のモバイルアプリを同梱([mobile/](mobile/)。Expo Go で即起動可能)
 - **認証**: Tailscale ACL による保護を基本に、オプションで API トークン。DNS リバインディング / CSRF 対策済み
 
 ## スマホから使うには(はじめての方向け)
@@ -140,12 +141,24 @@ npm start          # ビルド + API + Web コンソール配信
 - フロントエンド: React + Vite + Lucide React + Noto Sans JP
 - デプロイ: systemd(`deploy/install.sh`)
 
+## モバイルアプリ(React Native / Expo)
+
+`mobile/` に Expo 製のネイティブアプリがあります。Web 版と同じ画面構成で、API URL とトークンをアプリ内で設定して使います。
+
+```bash
+cd mobile
+npm install
+npx expo start   # Expo Go でQRコードを読み取って起動
+```
+
+詳細は [mobile/README.md](mobile/README.md) を参照してください。
+
 ## 今後の拡張候補
 
 - Wake のスケジュール実行 / 自動化
 - デバイスのピン留め・並び替え
-- Web Push によるバックグラウンド通知
-- React Native / Expo とのデータ型・API クライアント共有
+- Web Push / モバイルプッシュによるバックグラウンド通知
+- EAS Build によるストア配布
 
 ## License
 
