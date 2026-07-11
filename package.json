@@ -15,7 +15,6 @@
     "test": "node --test \"server/test/*.test.js\""
   },
   "dependencies": {
-    "@fontsource/noto-sans-jp": "^5.2.9",
     "@fortawesome/free-brands-svg-icons": "^7.3.0",
     "@vitejs/plugin-react": "latest",
     "lucide-react": "latest",

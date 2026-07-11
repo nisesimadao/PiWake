@@ -1,11 +1,7 @@
-@import '@fontsource/noto-sans-jp/400.css';
-@import '@fontsource/noto-sans-jp/500.css';
-@import '@fontsource/noto-sans-jp/600.css';
-@import '@fontsource/noto-sans-jp/700.css';
-
-:root { color-scheme: dark; font-family: "Noto Sans JP", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #080a0c; color: #f5f7fa; font-synthesis: none; --bg:#0b0d10; --surface:#14171c; --elevated:#1a1e24; --line:#292e36; --text:#f5f7fa; --muted:#8d96a5; --accent:#f04454; --green:#42d68a; --amber:#f4b84a; --blue:#699cff; --danger:#ff453a; }
+/* Fonts are embedded from Google Fonts at runtime (src/lib/fonts.js). */
+:root { color-scheme: dark; font-family: var(--app-font, "M PLUS 1", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif); background: #080a0c; color: #f5f7fa; font-synthesis: none; --bg:#0b0d10; --surface:#14171c; --elevated:#1a1e24; --line:#292e36; --text:#f5f7fa; --muted:#8d96a5; --accent:#f04454; --green:#42d68a; --amber:#f4b84a; --blue:#699cff; --danger:#ff453a; }
 * { box-sizing: border-box; }
-body { margin:0; min-width:320px; min-height:100vh; background:#080a0c; }
+body { margin:0; min-width:320px; min-height:100vh; background:#080a0c; font-weight:var(--app-font-weight, 400); }
 button, input { font:inherit; }
 button { color:inherit; }
 button { -webkit-tap-highlight-color:transparent; transition:background-color .16s ease,border-color .16s ease,color .16s ease,transform .12s ease,opacity .16s ease; }
@@ -119,6 +115,15 @@ button:focus-visible, input:focus-visible { outline:2px solid var(--blue); outli
 .status-online i { animation:pulse-dot 2.4s ease infinite; }
 @keyframes pulse-dot { 0%,100% { box-shadow:0 0 0 3px rgba(66,214,138,.07); } 50% { box-shadow:0 0 0 6px rgba(66,214,138,.18); } }
 .ready-actions { animation:sheet-in .35s ease-out; }
+.font-list { border:1px solid var(--line); background:var(--surface); overflow:hidden; }
+.font-row { width:100%; min-height:60px; display:flex; align-items:center; gap:12px; padding:10px 15px; border:0; border-bottom:1px solid var(--line); background:transparent; text-align:left; cursor:pointer; }
+.font-row:last-child { border-bottom:0; }
+.font-row:hover { background:#171b20; }
+.font-row.selected { box-shadow:inset 3px 0 var(--accent); background:#181b20; }
+.font-copy { flex:1; display:flex; flex-direction:column; gap:3px; min-width:0; }
+.font-copy strong { font-size:14px; }
+.font-copy small { color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.font-note { margin-top:8px; }
 .os-chips { display:flex; flex-wrap:wrap; gap:7px; }
 .os-chips.in-form { margin-top:-6px; }
 .os-chip { display:flex; align-items:center; gap:7px; border:1px solid var(--line); background:var(--surface); color:var(--muted); border-radius:13px; min-height:36px; padding:0 12px; font-size:12px; font-weight:600; cursor:pointer; }

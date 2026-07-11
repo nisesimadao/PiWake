@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import './styles.css';
 import { loadAppState, resetAppState, saveAppState } from './lib/appState';
+import { FONT_OPTIONS, getFontId, initFont, loadFontPreviews, setFont } from './lib/fonts';
 import { OsIcon, OS_OPTIONS } from './components/osIcons';
 import { eventsUrl, getApiToken, piwakeClient, runtime, setApiToken } from './services/piwakeClient';
 
@@ -556,6 +557,13 @@ function ActivityView({ toast }) {
 function SettingsView({ setView, toast, resetDemo, apiIssue }) {
   const [checking, setChecking] = useState(false);
   const [token, setToken] = useState(getApiToken());
+  const [fontId, setFontId] = useState(getFontId());
+  useEffect(() => { loadFontPreviews(); }, []);
+  const chooseFont = option => {
+    setFont(option.id);
+    setFontId(option.id);
+    toast(`フォントを ${option.label} に変更しました`);
+  };
   const checkConnection = async () => {
     setChecking(true);
     try {
@@ -584,6 +592,18 @@ function SettingsView({ setView, toast, resetDemo, apiIssue }) {
         <button className="secondary-action" type="submit">保存</button>
       </form>
     </>}
+    <div className="section-label">Appearance</div>
+    <section className="font-list squircle">
+      {FONT_OPTIONS.map(option => (
+        <button key={option.id} type="button" className={`font-row ${fontId === option.id ? 'selected' : ''}`} onClick={() => chooseFont(option)}>
+          <span className="font-copy" style={{ fontFamily: `"${option.family}", sans-serif` }}>
+            <strong>{option.label}</strong><small>家のPCを、外から起こす。 Wake 0123</small>
+          </span>
+          <span className="check-box">{fontId === option.id && <Check size={14} />}</span>
+        </button>
+      ))}
+    </section>
+    <p className="danger-note font-note">フォントはGoogle Fontsから都度読み込まれます（端末やPiには保存されません）。</p>
     <div className="section-label">Security</div><section className="setting-list squircle"><button><ShieldCheck size={18} /><span>Tailnet access</span><Status value={!isApi ? 'asleep' : tailnetOk ? 'online' : 'offline'}>{!isApi ? 'Demo' : tailnetOk ? 'Connected' : 'Unreachable'}</Status></button><button onClick={checkConnection}><Network size={18} /><span>Connection diagnostics</span><ChevronRight size={17} /></button></section>
     {runtime.mode === 'demo' && <button className="quiet-action reset-demo" type="button" onClick={resetDemo}>Reset demo data</button>}
   </main></>;
@@ -886,6 +906,7 @@ function App() {
   return <div className="site-shell"><div className="ambient" /><aside className="desktop-rail"><div className="brand"><img src="/icon.svg" alt="" className="brand-mark" /><span>PiWake</span></div><p>Home access,<br />quietly handled.</p><nav><button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}><Home />Home</button><button className={view === 'devices' ? 'active' : ''} onClick={() => setView('devices')}><Server />Devices</button><button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}><Activity />Activity</button></nav><div className="rail-footer"><div className="rail-runtime"><Status value={!isApi ? 'asleep' : apiIssue ? 'offline' : 'online'}>{!isApi ? 'Demo mode' : apiIssue ? 'API unreachable' : 'Tailnet connected'}</Status><small>{runtime.label}</small></div><button onClick={() => setView('settings')}><Settings size={17} />Settings</button></div></aside><div className="app-frame">{apiIssue && <button className="api-banner" onClick={() => setView('settings')}><Wifi size={14} />{apiIssue}<ChevronRight size={14} /></button>}{content}{showNav && <Nav view={view} setView={setView} />}{confirming && wakeDevice && <WakeConfirm device={wakeDevice} hostName={hostInfo.name} onCancel={() => setConfirming(false)} onConfirm={confirmWake} />}{toastMessage && <div className="toast" role="status" aria-live="polite"><Check size={16} />{toastMessage}</div>}</div></div>;
 }
 
+initFont();
 createRoot(document.getElementById('root')).render(<App />);
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

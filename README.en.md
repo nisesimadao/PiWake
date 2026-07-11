@@ -25,6 +25,7 @@ Turn your Raspberry Pi into a Wake-on-LAN relay and wake, watch, and connect to 
 - **Network scan** — one-tap adding of LAN devices discovered from the Pi's ARP table.
 - **Connection launchpad** — SSH (custom ports, command copied to clipboard), Chrome Remote Desktop, RDP, and custom web URLs (NAS dashboards, Proxmox, …), each with **live port-probe status**. Per-device SSH user/port, RDP port and web URL are stored server-side and shared between web and mobile.
 - **OS icons** — tag each device as Windows / macOS / Linux / Raspberry Pi and its logo (Font Awesome Brands) shows everywhere.
+- **Font picker** — eight curated Japanese Google Fonts (M PLUS 1 by default), switchable in Settings and embedded at runtime instead of bundled.
 - **Host monitoring** — CPU temperature, load average, uptime, Tailscale state.
 - **PWA** — add it to your phone's home screen and it behaves like a native app, with a service-worker offline shell.
 - **Native mobile app** — a React Native (Expo) app ships in [mobile/](mobile/); run it instantly with Expo Go.

@@ -26,6 +26,7 @@
 - **接続導線**: SSH(`ssh -p` 対応・コマンド自動コピー)、Chrome Remote Desktop、RDP、任意の Web URL(NAS 管理画面など)。各接続の**稼働状態をポート死活で表示**
 - **接続設定**: SSHユーザー・SSHポート・RDPポート・Web URL をデバイスごとにサーバー側へ保存(Web/モバイルで共有)
 - **OSアイコン**: デバイスごとに Windows / macOS / Linux / Raspberry Pi のロゴを設定可能(Font Awesome Brands)
+- **フォント設定**: 厳選した8つの日本語 Google Fonts(既定は M PLUS 1)から Settings で切り替え。フォントは埋め込み読み込みでバンドルしない
 - **ホスト監視**: CPU 温度・ロードアベレージ・稼働時間・Tailscale 状態
 - **PWA**: スマホのホーム画面に追加すればアプリのように起動(Service Workerによるオフラインシェル対応)
 - **ネイティブアプリ**: React Native (Expo) 製のモバイルアプリを同梱([mobile/](mobile/)。Expo Go で即起動可能)
@@ -145,7 +146,7 @@ npm start          # ビルド + API + Web コンソール配信
 ## 技術構成
 
 - サーバー: Node.js 標準ライブラリのみ(http / dgram / net / child_process)— npm 依存ゼロ
-- フロントエンド: React + Vite + Lucide React + Noto Sans JP
+- フロントエンド: React + Vite + Lucide React + Google Fonts(M PLUS 1 ほか8書体、実行時埋め込み)
 - デプロイ: systemd(`deploy/install.sh`)
 
 ## モバイルアプリ(React Native / Expo)
