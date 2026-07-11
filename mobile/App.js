@@ -9,7 +9,7 @@ import * as Clipboard from 'expo-clipboard';
 import {
   Activity, ArrowLeft, Check, ChevronRight, CircleHelp, Clock3, Cpu,
   MonitorUp, ExternalLink, Gauge, Globe2, Home, KeyRound, Monitor,
-  Plus, Power, RefreshCw, Radio, Search, Server, Settings, ShieldCheck,
+  Pin, Plus, Power, RefreshCw, Radio, Search, Server, Settings, ShieldCheck,
   SlidersHorizontal, Terminal, Thermometer, Trash2,
 } from 'lucide-react-native';
 import { colors } from './src/theme';
@@ -366,6 +366,15 @@ function PiWakeApp() {
     ]);
   };
 
+  const togglePin = async device => {
+    const next = !device.pinned;
+    try {
+      if (isDemo()) setDevices(ds => ds.map(d => d.id === device.id ? { ...d, pinned: next } : d));
+      else { await piwakeClient.updateDevice(device.id, { pinned: next }); await refresh(); }
+      toast(next ? 'ピン留めしました' : 'ピン留めを解除しました');
+    } catch { toast('更新できませんでした'); }
+  };
+
   const shutdownHost = () => {
     Alert.alert('ホストを停止', `${hostInfo.name} を停止しますか？Wake機能とリモート接続が使えなくなります。`, [
       { text: 'キャンセル', style: 'cancel' },
@@ -390,6 +399,8 @@ function PiWakeApp() {
     ['activity', Activity, 'Activity'],
   ];
   const showNav = ['home', 'devices', 'activity'].includes(view);
+  // The server already sorts pinned-first; re-sorting keeps demo mode consistent.
+  const orderedDevices = [...devices].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 
   return (
     <SafeAreaView style={s.screen} edges={['top', 'bottom']}>
@@ -400,9 +411,9 @@ function PiWakeApp() {
         </Pressable>
       ) : null}
       <View style={{ flex: 1 }}>
-        {view === 'home' && <HomeView {...{ devices, selectedId, setSelectedId, setView, startWake, toast, hostInfo, selected }} />}
-        {view === 'devices' && <DevicesView {...{ devices, selectedId, setSelectedId, setView, hostInfo }} />}
-        {view === 'detail' && <DetailView device={selected} {...{ setView, startWake, removeDevice, shutdownDevice, toast }} />}
+        {view === 'home' && <HomeView devices={orderedDevices} {...{ selectedId, setSelectedId, setView, startWake, toast, hostInfo, selected }} />}
+        {view === 'devices' && <DevicesView devices={orderedDevices} {...{ selectedId, setSelectedId, setView, hostInfo }} />}
+        {view === 'detail' && <DetailView device={selected} {...{ setView, startWake, removeDevice, shutdownDevice, togglePin, toast }} />}
         {view === 'waking' && <WakeProgress device={wakeDevice || selected} {...{ step, wakeFailed, cancelWake, finishWake }} />}
         {view === 'add' && <AddDeviceView {...{ setView, addDevice, toast }} />}
         {view === 'host' && <HostDetail {...{ setView, toast, hostInfo, shutdownHost }} />}
@@ -544,14 +555,17 @@ function DevicesView({ devices, selectedId, setSelectedId, setView, hostInfo }) 
   );
 }
 
-function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, toast }) {
+function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, togglePin, toast }) {
   if (!device) return null;
   const address = reachableAddress(device);
   const online = device.status === 'online';
   return (
     <View style={{ flex: 1 }}>
       <Header title={device.name} eyebrow="MANAGED DEVICE" onBack={() => setView('devices')}
-        right={<Pressable hitSlop={10} onPress={() => removeDevice(device)}><Trash2 size={19} color={colors.text} /></Pressable>} />
+        right={<View style={{ flexDirection: 'row', gap: 16 }}>
+          <Pressable hitSlop={10} onPress={() => togglePin(device)}><Pin size={19} color={device.pinned ? '#ff6874' : colors.text} /></Pressable>
+          <Pressable hitSlop={10} onPress={() => removeDevice(device)}><Trash2 size={19} color={colors.text} /></Pressable>
+        </View>} />
       <ScrollView contentContainerStyle={s.body}>
         <View style={s.identity}>
           <DeviceGlyph device={device} size={40} />
@@ -929,7 +943,7 @@ const s = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center' },
   pressed: { opacity: 0.75 },
   header: { height: 64, flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 20, paddingBottom: 12 },
-  headerSide: { width: 44, justifyContent: 'flex-end' },
+  headerSide: { minWidth: 44, justifyContent: 'flex-end' },
   headerCenter: { flex: 1, alignItems: 'center' },
   headerEyebrow: { color: colors.muted, fontSize: 10, letterSpacing: 1.4, marginBottom: 2 },
   headerTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },

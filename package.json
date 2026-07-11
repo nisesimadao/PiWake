@@ -11,7 +11,8 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "server": "node server/index.js",
-    "start": "npm run build && node server/index.js"
+    "start": "npm run build && node server/index.js",
+    "test": "node --test \"server/test/*.test.js\""
   },
   "dependencies": {
     "@fontsource/noto-sans-jp": "^5.2.9",

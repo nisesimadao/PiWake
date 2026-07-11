@@ -18,6 +18,8 @@
 ## できること
 
 - **Wake-on-LAN**: Pi から Magic Packet を送信し、ping / SSH・RDP ポートの応答を段階的に確認しながら「起動 → 接続可能」まで追跡。完了時はブラウザ通知
+- **スケジュールWake**: 「平日 07:30 に起動」のような曜日+時刻の自動起動(Pi のローカル時刻で実行)
+- **ピン留め**: よく使うデバイスを一覧の先頭に固定
 - **リモートシャットダウン**: 起動中のPCをSSH経由で停止(Pi からの鍵認証が前提)。Pi 本体の停止も可能
 - **デバイス管理**: 追加・削除・状態監視(10秒ごとの自動 ping + SSE でリアルタイム反映)
 - **ネットワークスキャン**: Pi の ARP テーブルから LAN 内デバイスを自動検出してワンタップ追加
@@ -132,6 +134,8 @@ npm start          # ビルド + API + Web コンソール配信
 | `POST` | `/api/devices/:id/shutdown` | SSH 経由でシャットダウン |
 | `GET` | `/api/jobs/:id` | Wake ジョブの進捗(`packet_sent` → `responding` → `reachable` → `ready`) |
 | `DELETE` | `/api/jobs/:id` | Wake ジョブのキャンセル |
+| `GET` / `POST` | `/api/schedules` | スケジュールWake の一覧 / 追加(`{deviceId, time: "07:30", days: [1,2,3,4,5]}`) |
+| `PATCH` / `DELETE` | `/api/schedules/:id` | スケジュールの更新(有効/無効・時刻・曜日)/ 削除 |
 | `GET` | `/api/activity` | 操作履歴(直近50件) |
 | `GET` | `/api/scan` | ARP テーブルからの LAN スキャン |
 
@@ -153,11 +157,16 @@ npx expo start   # Expo Go でQRコードを読み取って起動
 
 詳細は [mobile/README.md](mobile/README.md) を参照してください。
 
+## テスト
+
+```bash
+npm test   # node:test によるユニット + API統合テスト(依存ゼロ)
+```
+
 ## 今後の拡張候補
 
-- Wake のスケジュール実行 / 自動化
-- デバイスのピン留め・並び替え
 - Web Push / モバイルプッシュによるバックグラウンド通知
+- モバイルアプリへのスケジュールUI追加
 - EAS Build によるストア配布
 
 ## License

@@ -18,6 +18,8 @@ Turn your Raspberry Pi into a Wake-on-LAN relay and wake, watch, and connect to 
 ## Features
 
 - **Wake-on-LAN with staged tracking** — the Pi sends the magic packet, then walks the wake through `packet sent → responding → reachable over Tailscale → SSH/RDP ready`, with a browser notification when the machine is up. Not just fire-and-forget.
+- **Scheduled wakes** — "weekdays at 07:30" style automation, evaluated in the Pi's local time.
+- **Pinning** — keep your daily machines at the top of the list.
 - **Remote shutdown** — power machines off over key-based SSH from the Pi; shut down the Pi itself too.
 - **Live device status** — 10-second ping polling pushed to the UI over Server-Sent Events.
 - **Network scan** — one-tap adding of LAN devices discovered from the Pi's ARP table.
@@ -68,6 +70,10 @@ npm start          # build + serve API and web console
 
 Production builds talk to the same-origin API by default; demo mode only activates in `npm run dev` (without an API URL) or with `VITE_PIWAKE_MODE=demo`.
 
+```bash
+npm test   # unit + API integration tests via node:test (zero dependencies)
+```
+
 ## API
 
 | Method | Path | Purpose |
@@ -81,6 +87,8 @@ Production builds talk to the same-origin API by default; demo mode only activat
 | `POST` | `/api/devices/:id/wake` | Send magic packet, start a wake job |
 | `POST` | `/api/devices/:id/shutdown` | Shut down over SSH |
 | `GET/DELETE` | `/api/jobs/:id` | Wake job progress / cancel |
+| `GET/POST` | `/api/schedules` | List / add scheduled wakes (`{deviceId, time, days}`) |
+| `PATCH/DELETE` | `/api/schedules/:id` | Update / remove a schedule |
 | `GET` | `/api/activity` | Recent activity (last 50) |
 | `GET` | `/api/scan` | LAN scan from the ARP table |
 

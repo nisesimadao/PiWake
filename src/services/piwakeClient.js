@@ -65,6 +65,26 @@ export const piwakeClient = {
     if (demoMode) return null;
     return request(`/api/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
   },
+  async updateDevice(deviceId, patch) {
+    if (demoMode) return patch;
+    return request(`/api/devices/${encodeURIComponent(deviceId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+  async listSchedules() {
+    if (demoMode) return [];
+    return request('/api/schedules');
+  },
+  async addSchedule(payload) {
+    if (demoMode) return null;
+    return request('/api/schedules', { method: 'POST', body: JSON.stringify(payload) });
+  },
+  async updateSchedule(scheduleId, patch) {
+    if (demoMode) return null;
+    return request(`/api/schedules/${encodeURIComponent(scheduleId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+  async removeSchedule(scheduleId) {
+    if (demoMode) return null;
+    return request(`/api/schedules/${encodeURIComponent(scheduleId)}`, { method: 'DELETE' });
+  },
   async wakeDevice(device) {
     if (demoMode) return { jobId: null, deviceId: device.id };
     return request(`/api/devices/${encodeURIComponent(device.id)}/wake`, { method: 'POST' });

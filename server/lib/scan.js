@@ -21,7 +21,7 @@ function isUsable({ ip, mac }) {
   return !IGNORED_MAC_PREFIXES.some(prefix => mac.toLowerCase().startsWith(prefix));
 }
 
-function parseIpNeigh(output) {
+export function parseIpNeigh(output) {
   // "192.168.1.66 dev eth0 lladdr 3c:52:82:9a:11:22 REACHABLE"
   return output.split('\n').flatMap(line => {
     const match = line.match(/^(\S+)\s+dev\s+\S+\s+lladdr\s+([0-9a-fA-F:]{17})\s+(\S+)/);
@@ -30,7 +30,7 @@ function parseIpNeigh(output) {
   });
 }
 
-function parseArp(output) {
+export function parseArp(output) {
   // unix: "? (192.168.1.66) at 3c:52:82:9a:11:22 [ether] on en0"
   // win:  "  192.168.1.66      3c-52-82-9a-11-22     dynamic"
   return output.split('\n').flatMap(line => {

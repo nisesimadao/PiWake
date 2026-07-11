@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  Activity, ArrowLeft, Check, ChevronRight, CircleHelp, Clock3, Cpu,
+  Activity, ArrowLeft, CalendarClock, Check, ChevronRight, CircleHelp, Clock3, Cpu,
   MonitorUp as Desktop, ExternalLink, Gauge, Globe2, Home, KeyRound, Monitor,
-  Network, Plus, Power, Radio, RefreshCw, Router, Search, Server,
+  Network, Pin, Plus, Power, Radio, RefreshCw, Router, Search, Server,
   Settings, ShieldCheck, SlidersHorizontal, Terminal,
   Thermometer, Trash2, Wifi, X
 } from 'lucide-react';
@@ -158,6 +158,7 @@ function QuickSwitch({ devices, selectedId, onSelect, onAdd }) {
     <div className="section-label">Quick switch</div>
     <div className="quick-switch">
       {devices.map(d => <button key={d.id} className={`quick-device squircle ${selectedId === d.id ? 'selected' : ''}`} onClick={() => onSelect(d.id)}>
+        {d.pinned && <Pin size={11} className="pin-mark" />}
         <DeviceGlyph device={d} size={25} /><span>{d.name}</span><Status value={d.status} />
       </button>)}
       <button className="quick-device add squircle" onClick={onAdd}><Plus size={24} /><span>Add</span></button>
@@ -206,7 +207,7 @@ function HomeView({ devices, selectedId, setSelectedId, setView, startWake, toas
 function DeviceRow({ device, selected, onClick, actions }) {
   return <button className={`device-row ${selected ? 'selected' : ''}`} onClick={onClick}>
     <DeviceGlyph device={device} />
-    <span className="row-copy"><strong>{device.name}</strong><small>{device.ip || device.localIp || 'IP未設定'}</small><Status value={device.status} /></span>
+    <span className="row-copy"><strong>{device.name}{device.pinned && <Pin size={11} className="row-pin" />}</strong><small>{device.ip || device.localIp || 'IP未設定'}</small><Status value={device.status} /></span>
     {actions || <ChevronRight size={18} />}
   </button>;
 }
@@ -233,13 +234,73 @@ function ConnectionRow({ icon: Glyph, title, detail, accent, onClick }) {
   </button>;
 }
 
-function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, toast }) {
+const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+function ScheduleSection({ device, toast }) {
+  const [schedules, setSchedules] = useState(null);
+  const [time, setTime] = useState('07:00');
+  const [days, setDays] = useState([1, 2, 3, 4, 5]);
+  const load = useCallback(async () => {
+    try {
+      const all = await piwakeClient.listSchedules();
+      setSchedules((all || []).filter(item => item.deviceId === device.id));
+    } catch { setSchedules([]); }
+  }, [device.id]);
+  useEffect(() => { load(); }, [load]);
+  const add = async event => {
+    event.preventDefault();
+    if (!days.length) return toast('曜日を選択してください');
+    try {
+      await piwakeClient.addSchedule({ deviceId: device.id, time, days });
+      toast('スケジュールを追加しました');
+      load();
+    } catch { toast('スケジュールを追加できませんでした'); }
+  };
+  const toggle = async schedule => {
+    try { await piwakeClient.updateSchedule(schedule.id, { enabled: !schedule.enabled }); load(); }
+    catch { toast('更新できませんでした'); }
+  };
+  const remove = async schedule => {
+    try { await piwakeClient.removeSchedule(schedule.id); load(); }
+    catch { toast('削除できませんでした'); }
+  };
+  return <>
+    <div className="section-label">Scheduled wake</div>
+    <section className="schedule-list squircle">
+      {(schedules || []).map(schedule => (
+        <div className="schedule-row" key={schedule.id}>
+          <CalendarClock size={18} />
+          <span><strong>{schedule.time}</strong><small>{schedule.days.map(day => DAY_LABELS[day]).join('・')}曜日</small></span>
+          <button type="button" className={`schedule-toggle ${schedule.enabled ? 'on' : ''}`} onClick={() => toggle(schedule)}>{schedule.enabled ? 'ON' : 'OFF'}</button>
+          <IconButton label="スケジュールを削除" onClick={() => remove(schedule)}><X size={16} /></IconButton>
+        </div>
+      ))}
+      {schedules && !schedules.length && <div className="empty-row">スケジュールはまだありません</div>}
+      <form className="schedule-form" onSubmit={add}>
+        <input type="time" required value={time} onChange={e => setTime(e.target.value)} aria-label="起動時刻" />
+        <div className="day-chips">
+          {DAY_LABELS.map((label, index) => (
+            <button type="button" key={label} className={days.includes(index) ? 'active' : ''}
+              onClick={() => setDays(current => current.includes(index) ? current.filter(d => d !== index) : [...current, index].sort())}>{label}</button>
+          ))}
+        </div>
+        <button className="secondary-action schedule-add" type="submit"><Plus size={15} />追加</button>
+      </form>
+    </section>
+    <p className="danger-note schedule-note">指定した時刻（Piのローカル時刻）に自動でWakeします。</p>
+  </>;
+}
+
+function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, togglePin, toast }) {
   if (!device) return null;
   const address = reachableAddress(device);
   const prefs = loadConnectionPrefs(device.id);
   const online = device.status === 'online';
   return <>
-    <AppHeader title={device.name} eyebrow="Managed device" onBack={() => setView('devices')} trailing={<IconButton label="デバイスを削除" onClick={() => removeDevice(device)}><Trash2 size={20} /></IconButton>} />
+    <AppHeader title={device.name} eyebrow="Managed device" onBack={() => setView('devices')} trailing={<>
+      <IconButton label={device.pinned ? 'ピン留めを解除' : 'ピン留め'} className={device.pinned ? 'pinned' : ''} onClick={() => togglePin(device)}><Pin size={19} /></IconButton>
+      <IconButton label="デバイスを削除" onClick={() => removeDevice(device)}><Trash2 size={19} /></IconButton>
+    </>} />
     <main className="screen-body detail-body">
       <section className="identity-block">
         <DeviceGlyph device={device} size={42} /><div><h1>{device.name}</h1><Status value={device.status} /></div>
@@ -262,6 +323,7 @@ function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, 
       <section className="setting-list squircle">
         <button onClick={() => setView('connections')}><Network size={18} /><span>接続方法の設定</span><ChevronRight size={17} /></button>
       </section>
+      {isApi && <ScheduleSection device={device} toast={toast} />}
       {online && <button className="secondary-action danger" onClick={() => shutdownDevice(device)}><Power size={18} />Shut down {device.name}</button>}
       {online && <p className="danger-note">SSH経由でシャットダウンします（PiからのSSH鍵設定が必要）。</p>}
     </main>
@@ -723,12 +785,33 @@ function App() {
     }
   };
 
+  const togglePin = async device => {
+    const next = !device.pinned;
+    try {
+      if (isApi) {
+        await piwakeClient.updateDevice(device.id, { pinned: next });
+        await refreshFromApi();
+      } else {
+        setDevices(ds => ds.map(d => d.id === device.id ? { ...d, pinned: next } : d));
+      }
+      toast(next ? 'ピン留めしました' : 'ピン留めを解除しました');
+    } catch {
+      toast('更新できませんでした');
+    }
+  };
+
   const resetDemo = () => { resetAppState(); setDevices(seedDevices); setSelectedId('main'); setView('home'); toast('デモデータをリセットしました'); };
 
+  // The server already sorts pinned-first; re-sorting keeps demo mode consistent.
+  const orderedDevices = useMemo(
+    () => [...devices].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)),
+    [devices],
+  );
+
   const content = (() => {
-    if (view === 'home') return <HomeView devices={devices} selectedId={selectedId} setSelectedId={setSelectedId} setView={setView} startWake={startWake} toast={toast} hostInfo={hostInfo} />;
-    if (view === 'devices') return <DevicesView devices={devices} selectedId={selectedId} selectDevice={setSelectedId} setView={setView} hostInfo={hostInfo} />;
-    if (view === 'detail') return <DetailView device={selected} setView={setView} startWake={startWake} removeDevice={removeDevice} shutdownDevice={shutdownDevice} toast={toast} />;
+    if (view === 'home') return <HomeView devices={orderedDevices} selectedId={selectedId} setSelectedId={setSelectedId} setView={setView} startWake={startWake} toast={toast} hostInfo={hostInfo} />;
+    if (view === 'devices') return <DevicesView devices={orderedDevices} selectedId={selectedId} selectDevice={setSelectedId} setView={setView} hostInfo={hostInfo} />;
+    if (view === 'detail') return <DetailView device={selected} setView={setView} startWake={startWake} removeDevice={removeDevice} shutdownDevice={shutdownDevice} togglePin={togglePin} toast={toast} />;
     if (view === 'waking') return <WakeProgress device={wakeDevice || selected} step={step} failed={wakeFailed} cancel={cancelWake} finish={finishWake} />;
     if (view === 'add') return <AddDevice onBack={() => setView('devices')} addDevice={addDevice} setView={setView} hostInfo={hostInfo} toast={toast} />;
     if (view === 'host') return <HostDetail setView={setView} toast={toast} hostInfo={hostInfo} shutdownHost={shutdownHost} />;

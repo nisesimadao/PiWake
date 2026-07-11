@@ -82,6 +82,10 @@ export const piwakeClient = {
     if (isDemo()) return null;
     return request(`/api/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
   },
+  async updateDevice(deviceId, patch) {
+    if (isDemo()) return patch;
+    return request(`/api/devices/${encodeURIComponent(deviceId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
   async wakeDevice(device) {
     if (isDemo()) return { jobId: null, deviceId: device.id };
     return request(`/api/devices/${encodeURIComponent(device.id)}/wake`, { method: 'POST' });

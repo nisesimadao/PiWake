@@ -27,11 +27,21 @@ const JOB_RETENTION_MS = 10 * 60 * 1000;
 
 let devices = readJson('devices', { version: 1, devices: [] }).devices;
 let activity = readJson('activity', []);
+let schedules = readJson('schedules', []);
 const jobs = new Map();
 const sseClients = new Set();
 
 function persistDevices() {
   writeJson('devices', { version: 1, devices });
+}
+
+function persistSchedules() {
+  writeJson('schedules', schedules);
+}
+
+// Pinned devices sort first; insertion order is preserved within each group.
+function sortedDevices() {
+  return devices.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 }
 
 function logActivity(deviceName, action, result = 'neutral') {
@@ -41,8 +51,8 @@ function logActivity(deviceName, action, result = 'neutral') {
 }
 
 function publicDevice(device) {
-  const { id, name, kind, mac, ip, localIp, location, user, status, lastSeenAt } = device;
-  return { id, name, kind, mac, ip, localIp, location, user, status: status || 'offline', lastSeenAt: lastSeenAt || null };
+  const { id, name, kind, mac, ip, localIp, location, user, status, lastSeenAt, pinned } = device;
+  return { id, name, kind, mac, ip, localIp, location, user, status: status || 'offline', lastSeenAt: lastSeenAt || null, pinned: Boolean(pinned) };
 }
 
 // ------------------------------------------------- server-sent events
@@ -54,7 +64,7 @@ function broadcast(event, data) {
 }
 
 function broadcastDevices() {
-  broadcast('devices', devices.map(publicDevice));
+  broadcast('devices', sortedDevices().map(publicDevice));
 }
 
 setInterval(() => {
@@ -134,6 +144,59 @@ async function runWakeJob(job, device) {
   }
   retireJob(job);
 }
+
+// ----------------------------------------------------- scheduled wakes
+
+function startWakeJob(device) {
+  const job = {
+    id: crypto.randomUUID(),
+    deviceId: device.id,
+    state: 'packet_sent',
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  jobs.set(job.id, job);
+  runWakeJob(job, device);
+  return job;
+}
+
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function validateSchedule(body) {
+  const time = String(body.time || '').trim();
+  if (!TIME_PATTERN.test(time)) return { error: 'time must be HH:MM (24h).' };
+  const days = Array.isArray(body.days) ? [...new Set(body.days.map(Number))] : [];
+  if (!days.length || days.some(day => !Number.isInteger(day) || day < 0 || day > 6)) {
+    return { error: 'days must be a non-empty array of 0 (Sun) to 6 (Sat).' };
+  }
+  return { time, days: days.sort((a, b) => a - b) };
+}
+
+// Fires wake jobs when a schedule's local time matches; minute granularity,
+// with lastFired guarding against double fires within the same minute.
+async function checkSchedules() {
+  const now = new Date();
+  const minuteKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const currentTime = minuteKey.slice(-5);
+  let dirty = false;
+  for (const schedule of schedules) {
+    if (!schedule.enabled || schedule.time !== currentTime) continue;
+    if (!schedule.days.includes(now.getDay()) || schedule.lastFired === minuteKey) continue;
+    schedule.lastFired = minuteKey;
+    dirty = true;
+    const device = devices.find(item => item.id === schedule.deviceId);
+    if (!device) continue;
+    try {
+      await sendMagicPacket(device.mac, { address: BROADCAST });
+      logActivity(device.name, 'Scheduled wake', 'neutral');
+      startWakeJob(device);
+    } catch (error) {
+      logActivity(device.name, 'Scheduled wake failed', 'warning');
+    }
+  }
+  if (dirty) persistSchedules();
+}
+setInterval(checkSchedules, 20000);
 
 // ------------------------------------------------------------ shutdown
 
@@ -267,7 +330,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/devices') {
-    return json(res, 200, devices.map(publicDevice));
+    return json(res, 200, sortedDevices().map(publicDevice));
   }
 
   if (req.method === 'POST' && url.pathname === '/api/devices') {
@@ -288,6 +351,7 @@ async function handleApi(req, res, url) {
       user: String(body.user || '').trim() || null,
       status: 'offline',
       lastSeenAt: null,
+      pinned: false,
     };
     devices.push(device);
     persistDevices();
@@ -304,6 +368,11 @@ async function handleApi(req, res, url) {
     if (req.method === 'DELETE' && segments.length === 3) {
       devices = devices.filter(item => item.id !== device.id);
       persistDevices();
+      const remaining = schedules.filter(schedule => schedule.deviceId !== device.id);
+      if (remaining.length !== schedules.length) {
+        schedules = remaining;
+        persistSchedules();
+      }
       logActivity(device.name, 'Device removed', 'neutral');
       broadcastDevices();
       return json(res, 204, null);
@@ -317,6 +386,7 @@ async function handleApi(req, res, url) {
       for (const key of ['name', 'ip', 'localIp', 'location', 'user']) {
         if (key in body) device[key] = String(body[key] || '').trim() || null;
       }
+      if ('pinned' in body) device.pinned = Boolean(body.pinned);
       persistDevices();
       broadcastDevices();
       return json(res, 200, publicDevice(device));
@@ -324,16 +394,8 @@ async function handleApi(req, res, url) {
 
     if (req.method === 'POST' && segments[3] === 'wake') {
       await sendMagicPacket(device.mac, { address: BROADCAST });
-      const job = {
-        id: crypto.randomUUID(),
-        deviceId: device.id,
-        state: 'packet_sent',
-        startedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      jobs.set(job.id, job);
       logActivity(device.name, 'Magic packet sent', 'neutral');
-      runWakeJob(job, device);
+      const job = startWakeJob(device);
       return json(res, 202, { jobId: job.id, deviceId: device.id, state: job.state });
     }
 
@@ -355,6 +417,55 @@ async function handleApi(req, res, url) {
     const job = jobs.get(segments[2]);
     if (job && !['ready', 'timeout', 'failed'].includes(job.state)) job.state = 'cancelled';
     return json(res, 204, null);
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/schedules') {
+    return json(res, 200, schedules);
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/schedules') {
+    if (schedules.length >= 50) return json(res, 400, { error: 'Too many schedules (max 50).' });
+    const body = await readBody(req);
+    const device = devices.find(item => item.id === body.deviceId);
+    if (!device) return json(res, 400, { error: 'deviceId must reference an existing device.' });
+    const validated = validateSchedule(body);
+    if (validated.error) return json(res, 400, { error: validated.error });
+    const schedule = {
+      id: crypto.randomUUID(),
+      deviceId: device.id,
+      time: validated.time,
+      days: validated.days,
+      enabled: body.enabled !== false,
+      lastFired: null,
+    };
+    schedules.push(schedule);
+    persistSchedules();
+    logActivity(device.name, `Schedule added (${schedule.time})`, 'neutral');
+    return json(res, 201, schedule);
+  }
+
+  if (segments[1] === 'schedules' && segments[2]) {
+    const schedule = schedules.find(item => item.id === segments[2]);
+    if (!schedule) return json(res, 404, { error: 'Schedule not found.' });
+
+    if (req.method === 'PATCH') {
+      const body = await readBody(req);
+      if ('time' in body || 'days' in body) {
+        const validated = validateSchedule({ time: body.time ?? schedule.time, days: body.days ?? schedule.days });
+        if (validated.error) return json(res, 400, { error: validated.error });
+        schedule.time = validated.time;
+        schedule.days = validated.days;
+      }
+      if ('enabled' in body) schedule.enabled = Boolean(body.enabled);
+      persistSchedules();
+      return json(res, 200, schedule);
+    }
+
+    if (req.method === 'DELETE') {
+      schedules = schedules.filter(item => item.id !== schedule.id);
+      persistSchedules();
+      return json(res, 204, null);
+    }
   }
 
   if (req.method === 'GET' && url.pathname === '/api/activity') {
