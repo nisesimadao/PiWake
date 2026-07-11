@@ -1,8 +1,43 @@
+# Regenerates docs/logo.png (README banner). Wordmark uses M PLUS 1 —
+# static TTFs are downloaded to %TEMP% on first run (System.Drawing cannot
+# use Google Fonts' woff2 directly).
 Add-Type -AssemblyName System.Drawing
 $BG = [System.Drawing.Color]::FromArgb(255,11,13,16)
 $RED = [System.Drawing.Color]::FromArgb(255,240,68,84)
 $GREEN = [System.Drawing.Color]::FromArgb(255,66,214,138)
 $WHITE = [System.Drawing.Color]::White
+
+$fontDir = Join-Path $env:TEMP 'piwake-fonts'
+New-Item -ItemType Directory -Force $fontDir | Out-Null
+$fontFiles = @{
+  Bold = Join-Path $fontDir 'MPLUS1-Bold.ttf'
+  Medium = Join-Path $fontDir 'MPLUS1-Medium.ttf'
+}
+$fontUrls = @{
+  Bold = 'https://raw.githubusercontent.com/coz-m/MPLUS_FONTS/master/fonts/MPLUS1/ttf/MPLUS1-Bold.ttf'
+  Medium = 'https://raw.githubusercontent.com/coz-m/MPLUS_FONTS/master/fonts/MPLUS1/ttf/MPLUS1-Medium.ttf'
+}
+foreach ($key in @('Bold', 'Medium')) {
+  if (-not (Test-Path $fontFiles[$key])) {
+    Invoke-WebRequest -Uri $fontUrls[$key] -OutFile $fontFiles[$key] -UseBasicParsing
+  }
+}
+
+$collection = New-Object System.Drawing.Text.PrivateFontCollection
+$collection.AddFontFile($fontFiles.Bold)
+$collection.AddFontFile($fontFiles.Medium)
+
+function Get-MplusFont([single]$size, [string]$styleName) {
+  foreach ($family in $collection.Families) {
+    if ($styleName -eq 'Bold' -and $family.IsStyleAvailable([System.Drawing.FontStyle]::Bold)) {
+      return New-Object System.Drawing.Font($family, $size, [System.Drawing.FontStyle]::Bold, 'Pixel')
+    }
+    if ($styleName -eq 'Medium' -and $family.Name -match 'Medium') {
+      return New-Object System.Drawing.Font($family, $size, [System.Drawing.FontStyle]::Regular, 'Pixel')
+    }
+  }
+  return New-Object System.Drawing.Font($collection.Families[0], $size, [System.Drawing.FontStyle]::Regular, 'Pixel')
+}
 
 function Draw-Leaf($g, [single]$cx, [single]$cy, [single]$rx, [single]$ry, [single]$deg, $brush) {
   $state = $g.Save()
@@ -46,7 +81,6 @@ $g.FillPath($cardBrush, $card)
 $borderPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(255,41,46,54), 2)
 $g.DrawPath($borderPen, $card)
 
-# mark (drawn in 0..100 space, scaled to 168px, vertically centered)
 $markSize = 168.0
 $mx = 52.0; $my = ($h - $markSize) / 2.0
 $state = $g.Save()
@@ -55,14 +89,14 @@ $g.ScaleTransform([single]($markSize/100.0), [single]($markSize/100.0))
 Draw-Mark $g
 $g.Restore($state)
 
-$font = New-Object System.Drawing.Font('Segoe UI', 58, [System.Drawing.FontStyle]::Bold, 'Pixel')
+$font = Get-MplusFont 74 'Bold'
 $white = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255,245,247,250))
-$g.DrawString('PiWake', $font, $white, 236, 48)
-$tagFont = New-Object System.Drawing.Font('Segoe UI', 19, [System.Drawing.FontStyle]::Regular, 'Pixel')
+$g.DrawString('PiWake', $font, $white, 230, 44)
+$tagFont = Get-MplusFont 24 'Medium'
 $muted = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255,141,150,165))
-$g.DrawString('Wake your home, from anywhere.', $tagFont, $muted, 242, 152)
+$g.DrawString('Wake your home, from anywhere.', $tagFont, $muted, 240, 152)
 
 $g.Dispose()
 $bmp.Save('E:\Coding\PiWake\docs\logo.png', [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
-Write-Output 'logo written'
+Write-Output 'logo written (M PLUS 1)'
