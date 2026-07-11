@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Activity, ArrowLeft, Check, ChevronRight, CircleHelp, Clock3, Cpu,
@@ -8,6 +8,8 @@ import {
   Thermometer, Wifi, X
 } from 'lucide-react';
 import './styles.css';
+import { loadAppState, resetAppState, saveAppState } from './lib/appState';
+import { piwakeClient, runtime } from './services/piwakeClient';
 
 const host = { id: 'host', name: 'raspberrypi-5', kind: 'host', ip: '100.100.1.1', localIp: '192.168.1.8', status: 'online', icon: Cpu };
 const seedDevices = [
@@ -25,7 +27,7 @@ const discovered = [
 const statusText = { online: 'Online', offline: 'Offline', asleep: 'Asleep' };
 
 function IconButton({ children, label, onClick, className = '' }) {
-  return <button className={`icon-button ${className}`} aria-label={label} onClick={onClick}>{children}</button>;
+  return <button type="button" className={`icon-button ${className}`} aria-label={label} onClick={onClick}>{children}</button>;
 }
 
 function Status({ value = 'offline', children }) {
@@ -44,7 +46,8 @@ function HostBar({ onOpen }) {
 }
 
 function DeviceGlyph({ device, size = 26 }) {
-  const Glyph = device.icon || Monitor;
+  const fallbackGlyphs = { host: Cpu, server: Server, pc: Monitor };
+  const Glyph = device.icon?.$$typeof || typeof device.icon === 'function' ? device.icon : fallbackGlyphs[device.kind] || Monitor;
   return <span className={`device-glyph ${device.kind === 'host' ? 'host-glyph' : ''}`}><Glyph size={size} strokeWidth={1.7} /></span>;
 }
 
@@ -171,8 +174,8 @@ function DetailView({ device, setView, startWake, toast }) {
 }
 
 function WakeConfirm({ device, onCancel, onConfirm }) {
-  return <div className="modal-layer"><div className="confirm-sheet squircle">
-    <div className="confirm-icon"><Power size={26} /></div><h2>Wake {device.name}?</h2>
+  return <div className="modal-layer" role="presentation" onMouseDown={event => event.target === event.currentTarget && onCancel()}><div className="confirm-sheet squircle" role="dialog" aria-modal="true" aria-labelledby="wake-dialog-title">
+    <div className="confirm-icon"><Power size={26} /></div><h2 id="wake-dialog-title">Wake {device.name}?</h2>
     <p>自宅の {host.name} からMagic Packetを送信し、Tailscaleで到達可能になるまで確認します。</p>
     <div className="confirm-device"><DeviceGlyph device={device} /><span><strong>{device.name}</strong><small>{device.mac}</small></span></div>
     <button className="primary-action" onClick={onConfirm}>Wake and connect</button>
@@ -223,10 +226,10 @@ function ManualForm({ addDevice }) {
   const [name, setName] = useState('New PC');
   const [ip, setIp] = useState('192.168.1.');
   const [mac, setMac] = useState('');
-  return <form className="manual-form squircle" onSubmit={e => { e.preventDefault(); addDevice({ name, ip, mac, icon: Monitor }, 9); }}>
-    <label>Device name<input value={name} onChange={e => setName(e.target.value)} /></label>
-    <label>Local IP<input value={ip} onChange={e => setIp(e.target.value)} /></label>
-    <label>MAC address<input placeholder="AA:BB:CC:DD:EE:FF" value={mac} onChange={e => setMac(e.target.value)} /></label>
+  return <form className="manual-form squircle" onSubmit={e => { e.preventDefault(); addDevice({ name: name.trim(), ip: ip.trim(), mac: mac.toUpperCase(), icon: Monitor }, 9); }}>
+    <label>Device name<input required maxLength="48" autoComplete="off" value={name} onChange={e => setName(e.target.value)} /></label>
+    <label>Local IP<input required inputMode="decimal" autoComplete="off" pattern="^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$" title="192.168.1.20 の形式で入力" value={ip} onChange={e => setIp(e.target.value)} /></label>
+    <label>MAC address<input required autoCapitalize="characters" autoComplete="off" pattern="^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$" title="AA:BB:CC:DD:EE:FF の形式で入力" placeholder="AA:BB:CC:DD:EE:FF" value={mac} onChange={e => setMac(e.target.value)} /></label>
     <button className="primary-action" type="submit">Continue</button>
   </form>;
 }
@@ -261,11 +264,20 @@ function ActivityView() {
   return <><AppHeader title="Activity" /><main className="screen-body"><p className="page-lead">Recent activity across your tailnet.</p><section className="timeline">{logs.map(([name, action, time, Glyph, state]) => <div className="timeline-row" key={time}><span className={`timeline-icon ${state}`}><Glyph size={18} /></span><span><strong>{action}</strong><small>{name} · {time}</small></span></div>)}</section></main></>;
 }
 
-function SettingsView({ setView }) {
+function SettingsView({ setView, toast, resetDemo }) {
+  const [checking, setChecking] = useState(false);
+  const checkConnection = async () => {
+    setChecking(true);
+    try { await piwakeClient.checkHealth(); toast(`${runtime.label} is ready`); }
+    catch { toast('APIへ接続できませんでした'); }
+    finally { setChecking(false); }
+  };
   return <><AppHeader title="Settings" onBack={() => setView('home')} /><main className="screen-body">
     <section className="settings-intro"><ShieldCheck size={30} /><h1>Tailscale-first</h1><p>PiWakeは公開ポートを使わず、あなたのtailnet内だけで通信します。</p></section>
+    <div className="section-label">Runtime</div><section className="runtime-panel squircle"><div><span className={`runtime-dot ${runtime.mode}`} /><span><strong>{runtime.label}</strong><small>{runtime.apiBaseUrl || 'Local state · no network calls'}</small></span></div><button type="button" onClick={checkConnection} disabled={checking}>{checking ? 'Checking…' : 'Check'}</button></section>
     <div className="section-label">App</div><section className="setting-list squircle"><button><Smartphone size={18} /><span>External app links</span><ChevronRight size={17} /></button><button><Activity size={18} /><span>Notifications</span><ChevronRight size={17} /></button><button><SlidersHorizontal size={18} /><span>Appearance</span><ChevronRight size={17} /></button></section>
     <div className="section-label">Security</div><section className="setting-list squircle"><button><ShieldCheck size={18} /><span>Tailnet access</span><Status value="online">Connected</Status></button><button><Network size={18} /><span>Connection diagnostics</span><ChevronRight size={17} /></button></section>
+    {runtime.mode === 'demo' && <button className="quiet-action reset-demo" type="button" onClick={resetDemo}>Reset demo data</button>}
   </main></>;
 }
 
@@ -276,17 +288,25 @@ function ConnectionSetup({ setView }) {
 }
 
 function App() {
+  const initialState = useMemo(() => loadAppState(seedDevices), []);
   const [view, setView] = useState('home');
-  const [devices, setDevices] = useState(seedDevices);
-  const [selectedId, setSelectedId] = useState('main');
+  const [devices, setDevices] = useState(initialState.devices);
+  const [selectedId, setSelectedId] = useState(initialState.selectedId);
   const [wakeDevice, setWakeDevice] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [step, setStep] = useState(0);
   const [toastMessage, setToastMessage] = useState('');
+  const toastTimer = useRef();
   const selected = devices.find(d => d.id === selectedId) || devices[0];
-  const toast = message => { setToastMessage(message); setTimeout(() => setToastMessage(''), 2600); };
+  const toast = message => { clearTimeout(toastTimer.current); setToastMessage(message); toastTimer.current = setTimeout(() => setToastMessage(''), 2600); };
   const startWake = device => { setWakeDevice(device); setConfirming(true); };
-  const confirmWake = () => { setConfirming(false); setStep(0); setView('waking'); };
+  const confirmWake = async () => {
+    setConfirming(false); setStep(0); setView('waking');
+    try { await piwakeClient.wakeDevice(wakeDevice); }
+    catch { setView('home'); toast('Wakeリクエストを送信できませんでした'); }
+  };
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+  useEffect(() => { saveAppState({ devices, selectedId }); }, [devices, selectedId]);
   useEffect(() => {
     if (view !== 'waking' || step >= 4) return;
     const id = setTimeout(() => setStep(s => s + 1), 850);
@@ -296,12 +316,16 @@ function App() {
     setDevices(ds => ds.map(d => d.id === wakeDevice.id ? { ...d, status: 'online', last: 'いま' } : d));
     setView('home'); toast(target === 'ssh' ? 'SSHを開く準備ができました' : 'Desktopを開く準備ができました');
   };
-  const addDevice = (d, i) => {
+  const addDevice = async (d, i) => {
     const id = `added-${Date.now()}`;
-    setDevices(ds => [...ds, { ...d, id, kind: i === 2 ? 'server' : 'pc', status: 'offline', last: '未接続', location: 'Home' }]);
+    const nextDevice = { ...d, id, kind: i === 2 ? 'server' : 'pc', status: 'offline', last: '未接続', location: 'Home' };
+    try { await piwakeClient.addDevice(nextDevice); }
+    catch { toast('デバイスを追加できませんでした'); return; }
+    setDevices(ds => [...ds, nextDevice]);
     setSelectedId(id); setView('connections'); toast(`${d.name}を追加しました`);
   };
-  const content = useMemo(() => {
+  const resetDemo = () => { resetAppState(); setDevices(seedDevices); setSelectedId('main'); setView('home'); toast('デモデータをリセットしました'); };
+  const content = (() => {
     if (view === 'home') return <HomeView devices={devices} selectedId={selectedId} setSelectedId={setSelectedId} setView={setView} startWake={startWake} toast={toast} />;
     if (view === 'devices') return <DevicesView devices={devices} selectedId={selectedId} selectDevice={setSelectedId} setView={setView} />;
     if (view === 'detail') return <DetailView device={selected} setView={setView} startWake={startWake} toast={toast} />;
@@ -309,11 +333,11 @@ function App() {
     if (view === 'add') return <AddDevice onBack={() => setView('devices')} addDevice={addDevice} setView={setView} />;
     if (view === 'host') return <HostDetail setView={setView} toast={toast} />;
     if (view === 'activity') return <ActivityView />;
-    if (view === 'settings') return <SettingsView setView={setView} />;
+    if (view === 'settings') return <SettingsView setView={setView} toast={toast} resetDemo={resetDemo} />;
     if (view === 'connections') return <ConnectionSetup setView={setView} />;
-  }, [view, devices, selectedId, step, wakeDevice]);
+  })();
   const showNav = ['home', 'devices', 'activity'].includes(view);
-  return <div className="site-shell"><div className="ambient" /><aside className="desktop-rail"><div className="brand"><Power size={20} /><span>PiWake</span></div><p>Home access,<br />quietly handled.</p><nav><button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}><Home />Home</button><button className={view === 'devices' ? 'active' : ''} onClick={() => setView('devices')}><Server />Devices</button><button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}><Activity />Activity</button></nav><div className="rail-footer"><Status value="online">Tailnet connected</Status><button onClick={() => setView('settings')}><Settings size={17} />Settings</button></div></aside><div className="app-frame">{content}{showNav && <Nav view={view} setView={setView} />}{confirming && wakeDevice && <WakeConfirm device={wakeDevice} onCancel={() => setConfirming(false)} onConfirm={confirmWake} />}{toastMessage && <div className="toast"><Check size={16} />{toastMessage}</div>}</div></div>;
+  return <div className="site-shell"><div className="ambient" /><aside className="desktop-rail"><div className="brand"><Power size={20} /><span>PiWake</span></div><p>Home access,<br />quietly handled.</p><nav><button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}><Home />Home</button><button className={view === 'devices' ? 'active' : ''} onClick={() => setView('devices')}><Server />Devices</button><button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}><Activity />Activity</button></nav><div className="rail-footer"><div className="rail-runtime"><Status value="online">Tailnet connected</Status><small>{runtime.label}</small></div><button onClick={() => setView('settings')}><Settings size={17} />Settings</button></div></aside><div className="app-frame">{content}{showNav && <Nav view={view} setView={setView} />}{confirming && wakeDevice && <WakeConfirm device={wakeDevice} onCancel={() => setConfirming(false)} onConfirm={confirmWake} />}{toastMessage && <div className="toast" role="status" aria-live="polite"><Check size={16} />{toastMessage}</div>}</div></div>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
