@@ -7,3 +7,4 @@ dist/
 !.env.example
 npm-debug.log*
 .claude/
+HANDOFF.md
