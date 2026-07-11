@@ -1,4 +1,4 @@
-# PiWake
+<p align="center"><img src="docs/logo.png" width="460" alt="PiWake — Wake your home, from anywhere."></p>
 
 <p>
   <img alt="Node.js 18+" src="https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white">
@@ -23,7 +23,9 @@
 - **リモートシャットダウン**: 起動中のPCをSSH経由で停止(Pi からの鍵認証が前提)。Pi 本体の停止も可能
 - **デバイス管理**: 追加・削除・状態監視(10秒ごとの自動 ping + SSE でリアルタイム反映)
 - **ネットワークスキャン**: Pi の ARP テーブルから LAN 内デバイスを自動検出してワンタップ追加
-- **接続導線**: SSH(`ssh://` + コマンドを自動コピー)、Chrome Remote Desktop、RDP、任意の Web URL(NAS 管理画面など)
+- **接続導線**: SSH(`ssh -p` 対応・コマンド自動コピー)、Chrome Remote Desktop、RDP、任意の Web URL(NAS 管理画面など)。各接続の**稼働状態をポート死活で表示**
+- **接続設定**: SSHユーザー・SSHポート・RDPポート・Web URL をデバイスごとにサーバー側へ保存(Web/モバイルで共有)
+- **OSアイコン**: デバイスごとに Windows / macOS / Linux / Raspberry Pi のロゴを設定可能(Font Awesome Brands)
 - **ホスト監視**: CPU 温度・ロードアベレージ・稼働時間・Tailscale 状態
 - **PWA**: スマホのホーム画面に追加すればアプリのように起動(Service Workerによるオフラインシェル対応)
 - **ネイティブアプリ**: React Native (Expo) 製のモバイルアプリを同梱([mobile/](mobile/)。Expo Go で即起動可能)
@@ -131,7 +133,8 @@ npm start          # ビルド + API + Web コンソール配信
 | `PATCH` | `/api/devices/:id` | デバイス更新 |
 | `DELETE` | `/api/devices/:id` | デバイス削除 |
 | `POST` | `/api/devices/:id/wake` | Magic Packet 送信 + Wake ジョブ開始 |
-| `POST` | `/api/devices/:id/shutdown` | SSH 経由でシャットダウン |
+| `POST` | `/api/devices/:id/shutdown` | SSH 経由でシャットダウン(カスタムポート対応) |
+| `GET` | `/api/devices/:id/services` | SSH / RDP / Web の稼働状態をポート死活で確認 |
 | `GET` | `/api/jobs/:id` | Wake ジョブの進捗(`packet_sent` → `responding` → `reachable` → `ready`) |
 | `DELETE` | `/api/jobs/:id` | Wake ジョブのキャンセル |
 | `GET` / `POST` | `/api/schedules` | スケジュールWake の一覧 / 追加(`{deviceId, time: "07:30", days: [1,2,3,4,5]}`) |

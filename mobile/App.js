@@ -13,13 +13,14 @@ import {
   SlidersHorizontal, Terminal, Thermometer, Trash2,
 } from 'lucide-react-native';
 import { colors } from './src/theme';
+import { OsIcon, OS_OPTIONS } from './src/osIcons';
 import { getConfig, isDemo, loadConfig, piwakeClient, saveConfig } from './src/piwakeClient';
 
 const demoHost = { name: 'raspberrypi-5', tempC: 46, load1: 0.2, uptimeSeconds: 195000, tailscaleIp: '100.100.1.1', tailscaleOnline: true };
 const seedDevices = [
-  { id: 'main', name: 'Main PC', kind: 'pc', ip: '100.100.1.23', mac: 'D4:5D:64:12:34:56', status: 'offline', last: '3日前', location: 'Home Office' },
-  { id: 'sub', name: 'Sub PC', kind: 'pc', ip: '100.100.1.42', mac: '8C:47:BE:20:11:08', status: 'offline', last: '昨日', location: 'Desk' },
-  { id: 'server', name: 'Home Server', kind: 'server', ip: '100.100.1.10', mac: '60:A4:B7:09:CF:2A', status: 'online', last: 'いま', location: 'Rack' },
+  { id: 'main', name: 'Main PC', kind: 'pc', os: 'windows', ip: '100.100.1.23', mac: 'D4:5D:64:12:34:56', status: 'offline', last: '3日前', location: 'Home Office' },
+  { id: 'sub', name: 'Sub PC', kind: 'pc', os: 'macos', ip: '100.100.1.42', mac: '8C:47:BE:20:11:08', status: 'offline', last: '昨日', location: 'Desk' },
+  { id: 'server', name: 'Home Server', kind: 'server', os: 'linux', ip: '100.100.1.10', mac: '60:A4:B7:09:CF:2A', status: 'online', last: 'いま', location: 'Rack' },
 ];
 const demoDiscovered = [
   { name: 'Office PC', ip: '192.168.1.66', mac: '3C:52:82:9A:11:22' },
@@ -70,13 +71,19 @@ function reachableAddress(device) {
   return device.ip || device.localIp;
 }
 
-async function openSsh(device, toast) {
+function sshCommand(device) {
   const address = reachableAddress(device);
-  if (!address) return toast('接続先IPが設定されていません');
-  const target = `${device.user || 'pi'}@${address}`;
-  await Clipboard.setStringAsync(`ssh ${target}`);
-  try { await Linking.openURL(`ssh://${target}`); } catch { /* no ssh app installed */ }
-  toast(`「ssh ${target}」をコピーしました`);
+  if (!address) return null;
+  return `ssh ${device.sshPort ? `-p ${device.sshPort} ` : ''}${device.user || 'pi'}@${address}`;
+}
+
+async function openSsh(device, toast) {
+  const command = sshCommand(device);
+  if (!command) return toast('接続先IPが設定されていません');
+  const target = `${device.user || 'pi'}@${reachableAddress(device)}`;
+  await Clipboard.setStringAsync(command);
+  try { await Linking.openURL(`ssh://${target}${device.sshPort ? `:${device.sshPort}` : ''}`); } catch { /* no ssh app installed */ }
+  toast(`「${command}」をコピーしました`);
 }
 
 async function openChromeRemoteDesktop(toast) {
@@ -87,14 +94,22 @@ async function openChromeRemoteDesktop(toast) {
 async function openRdp(device, toast) {
   const address = reachableAddress(device);
   if (!address) return toast('接続先IPが設定されていません');
-  await Clipboard.setStringAsync(address);
-  try { await Linking.openURL(`rdp://full%20address=s:${address}`); } catch { /* no rdp app installed */ }
-  toast(`${address} をコピーしました。RDPアプリで貼り付けて接続`);
+  const target = device.rdpPort ? `${address}:${device.rdpPort}` : address;
+  await Clipboard.setStringAsync(target);
+  try { await Linking.openURL(`rdp://full%20address=s:${target}`); } catch { /* no rdp app installed */ }
+  toast(`${target} をコピーしました。RDPアプリで貼り付けて接続`);
 }
 
 function DeviceGlyph({ device, size = 26, color }) {
-  const Glyph = device.kind === 'host' ? Cpu : device.kind === 'server' ? Server : Monitor;
-  return <Glyph size={size} strokeWidth={1.7} color={color || (device.kind === 'host' ? '#ff5b68' : '#a8b0bc')} />;
+  const os = device.os || (device.kind === 'host' ? 'raspberrypi' : null);
+  if (os) return <OsIcon os={os} size={size * 0.92} color={color || (device.kind === 'host' ? '#ff5b68' : '#a8b0bc')} />;
+  const Glyph = device.kind === 'server' ? Server : Monitor;
+  return <Glyph size={size} strokeWidth={1.7} color={color || '#a8b0bc'} />;
+}
+
+function ServicePill({ state }) {
+  if (state == null) return null;
+  return <StatusPill value={state ? 'online' : 'offline'} label={state ? 'Up' : 'Down'} />;
 }
 
 function StatusPill({ value = 'offline', label }) {
@@ -137,14 +152,20 @@ function SecondaryButton({ icon: Glyph, label, onPress, danger }) {
   );
 }
 
+function hostTailscaleState(hostInfo) {
+  if (hostInfo.tailscaleOnline === true) return { value: 'online', label: 'Tailscale connected' };
+  if (hostInfo.tailscaleOnline === false) return { value: 'offline', label: 'Tailscale offline' };
+  return { value: 'asleep', label: '接続確認中…' };
+}
+
 function HostBar({ hostInfo, onOpen }) {
-  const online = hostInfo.tailscaleOnline !== false;
+  const tailscale = hostTailscaleState(hostInfo);
   return (
     <Pressable style={({ pressed }) => [s.hostBar, pressed && s.pressed]} onPress={onOpen}>
-      <View style={s.hostMark}><Cpu size={20} color="#ff5b68" /></View>
+      <View style={s.hostMark}><OsIcon os="raspberrypi" size={20} color="#ff5b68" /></View>
       <View style={{ flex: 1 }}>
         <Text style={s.hostName}>{hostInfo.name}</Text>
-        <StatusPill value={online ? 'online' : 'offline'} label={online ? 'Tailscale connected' : 'Tailscale offline'} />
+        <StatusPill value={tailscale.value} label={tailscale.label} />
       </View>
       {hostInfo.tempC != null && (
         <View style={s.hostMeta}><Thermometer size={13} color={colors.muted} /><Text style={s.hostMetaText}>{hostInfo.tempC}°</Text></View>
@@ -235,6 +256,7 @@ function PiWakeApp() {
         setSelectedId('main');
         setView('setup');
       } else {
+        setHostInfo({ name: 'Raspberry Pi', tempC: null, load1: null, uptimeSeconds: NaN, tailscaleIp: null, tailscaleOnline: null });
         refresh();
       }
       setBooted(true);
@@ -370,13 +392,19 @@ function PiWakeApp() {
     ]);
   };
 
+  const patchDevice = async (device, patch) => {
+    try {
+      if (isDemo()) setDevices(ds => ds.map(d => d.id === device.id ? { ...d, ...patch } : d));
+      else { await piwakeClient.updateDevice(device.id, patch); await refresh(); }
+      return true;
+    } catch { toast('更新できませんでした'); return false; }
+  };
+
   const togglePin = async device => {
     const next = !device.pinned;
-    try {
-      if (isDemo()) setDevices(ds => ds.map(d => d.id === device.id ? { ...d, pinned: next } : d));
-      else { await piwakeClient.updateDevice(device.id, { pinned: next }); await refresh(); }
+    if (await patchDevice(device, { pinned: next })) {
       toast(next ? 'ピン留めしました' : 'ピン留めを解除しました');
-    } catch { toast('更新できませんでした'); }
+    }
   };
 
   const shutdownHost = () => {
@@ -405,6 +433,8 @@ function PiWakeApp() {
   const showNav = ['home', 'devices', 'activity'].includes(view);
   // The server already sorts pinned-first; re-sorting keeps demo mode consistent.
   const orderedDevices = [...devices].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+  // When the API is unreachable, never present the host as online.
+  const hostView = configured && apiIssue ? { ...hostInfo, tailscaleOnline: false, tempC: null } : hostInfo;
 
   return (
     <SafeAreaView style={s.screen} edges={['top', 'bottom']}>
@@ -415,12 +445,12 @@ function PiWakeApp() {
         </Pressable>
       ) : null}
       <View style={{ flex: 1 }}>
-        {view === 'home' && <HomeView devices={orderedDevices} {...{ selectedId, setSelectedId, setView, startWake, toast, hostInfo, selected }} />}
-        {view === 'devices' && <DevicesView devices={orderedDevices} {...{ selectedId, setSelectedId, setView, hostInfo }} />}
-        {view === 'detail' && <DetailView device={selected} {...{ setView, startWake, removeDevice, shutdownDevice, togglePin, toast }} />}
+        {view === 'home' && <HomeView devices={orderedDevices} hostInfo={hostView} {...{ selectedId, setSelectedId, setView, startWake, toast, selected }} />}
+        {view === 'devices' && <DevicesView devices={orderedDevices} hostInfo={hostView} {...{ selectedId, setSelectedId, setView }} />}
+        {view === 'detail' && <DetailView device={selected} {...{ setView, startWake, removeDevice, shutdownDevice, togglePin, patchDevice, toast }} />}
         {view === 'waking' && <WakeProgress device={wakeDevice || selected} {...{ step, wakeFailed, cancelWake, finishWake }} />}
         {view === 'add' && <AddDeviceView {...{ setView, addDevice, toast }} />}
-        {view === 'host' && <HostDetail {...{ setView, toast, hostInfo, shutdownHost }} />}
+        {view === 'host' && <HostDetail hostInfo={hostView} {...{ setView, toast, shutdownHost }} />}
         {view === 'activity' && <ActivityScreen toast={toast} />}
         {(view === 'settings' || view === 'setup') && (
           <SettingsView
@@ -559,7 +589,19 @@ function DevicesView({ devices, selectedId, setSelectedId, setView, hostInfo }) 
   );
 }
 
-function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, togglePin, toast }) {
+function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, togglePin, patchDevice, toast }) {
+  const [services, setServices] = useState(null);
+  const deviceId = device?.id;
+  const deviceStatus = device?.status;
+  useEffect(() => {
+    if (isDemo() || !deviceId) return;
+    let cancelled = false;
+    setServices(null);
+    piwakeClient.getServices(deviceId)
+      .then(result => { if (!cancelled) setServices(result); })
+      .catch(() => { /* probe is best-effort */ });
+    return () => { cancelled = true; };
+  }, [deviceId, deviceStatus]);
   if (!device) return null;
   const address = reachableAddress(device);
   const online = device.status === 'online';
@@ -581,12 +623,27 @@ function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, 
         {!online && <PrimaryButton icon={Power} label="Wake and connect" onPress={() => startWake(device)} />}
         <SectionLabel>CONNECTION STACK</SectionLabel>
         <Card>
-          <ConnectionRow icon={Terminal} title="SSH" detail={`ssh ${device.user || 'pi'}@${address || '—'}`} accent onPress={() => openSsh(device, toast)} />
+          <ConnectionRow icon={Terminal} title="SSH" detail={sshCommand(device) || 'IP未設定'} accent right={<ServicePill state={services?.ssh?.up} />} onPress={() => openSsh(device, toast)} />
           <View style={s.divider} />
           <ConnectionRow icon={ExternalLink} title="Chrome Remote Desktop" detail="要・PC側の事前設定" onPress={() => openChromeRemoteDesktop(toast)} />
           <View style={s.divider} />
-          <ConnectionRow icon={MonitorUp} title="RDP" detail={address ? `rdp://${address}` : 'Microsoft Remote Desktop'} onPress={() => openRdp(device, toast)} />
+          <ConnectionRow icon={MonitorUp} title="RDP" detail={address ? `${address}:${device.rdpPort || 3389}` : 'Microsoft Remote Desktop'} right={<ServicePill state={services?.rdp?.up} />} onPress={() => openRdp(device, toast)} />
+          {device.webUrl ? <>
+            <View style={s.divider} />
+            <ConnectionRow icon={Globe2} title="Web service" detail={device.webUrl} right={<ServicePill state={services?.web?.up} />}
+              onPress={async () => { try { await Linking.openURL(device.webUrl); } catch { toast('開けませんでした'); } }} />
+          </> : null}
         </Card>
+        <SectionLabel>OS</SectionLabel>
+        <View style={s.osChips}>
+          {OS_OPTIONS.map(option => (
+            <Pressable key={option.id} style={[s.osChip, device.os === option.id && s.osChipActive]}
+              onPress={() => patchDevice(device, { os: device.os === option.id ? null : option.id })}>
+              <OsIcon os={option.id} size={15} color={device.os === option.id ? colors.text : colors.muted} />
+              <Text style={[s.osChipText, device.os === option.id && { color: colors.text }]}>{option.label}</Text>
+            </Pressable>
+          ))}
+        </View>
         <SectionLabel>DEVICE</SectionLabel>
         <Card style={{ paddingHorizontal: 15 }}>
           <View style={s.factRow}><Text style={s.factKey}>MAC</Text><Text style={s.factValue}>{device.mac}</Text></View>
@@ -867,16 +924,16 @@ function ManualForm({ addDevice }) {
 }
 
 function HostDetail({ setView, toast, hostInfo, shutdownHost }) {
-  const online = hostInfo.tailscaleOnline !== false;
+  const tailscale = hostTailscaleState(hostInfo);
   return (
     <View style={{ flex: 1 }}>
       <Header title="Raspberry Pi host" onBack={() => setView('home')} />
       <ScrollView contentContainerStyle={s.body}>
         <View style={s.identity}>
-          <View style={[s.hostMark, { width: 56, height: 56, borderRadius: 20 }]}><Cpu size={32} color="#ff5b68" /></View>
+          <View style={[s.hostMark, { width: 56, height: 56, borderRadius: 20 }]}><OsIcon os="raspberrypi" size={30} color="#ff5b68" /></View>
           <View>
             <Text style={s.stageName}>{hostInfo.name}</Text>
-            <StatusPill value={online ? 'online' : 'offline'} label={online ? 'Tailscale connected' : 'Tailscale offline'} />
+            <StatusPill value={tailscale.value} label={tailscale.label} />
           </View>
         </View>
         <Card style={s.metrics}>
@@ -1100,6 +1157,10 @@ const s = StyleSheet.create({
   metricLabel: { color: colors.muted, fontSize: 10 },
   timelineRow: { flexDirection: 'row', alignItems: 'center', gap: 13, minHeight: 68 },
   timelineIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: colors.elevated, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  osChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  osChip: { flexDirection: 'row', alignItems: 'center', gap: 7, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, borderRadius: 13, minHeight: 36, paddingHorizontal: 12 },
+  osChipActive: { borderColor: 'rgba(240,68,84,0.6)', backgroundColor: 'rgba(240,68,84,0.09)' },
+  osChipText: { color: colors.muted, fontSize: 12, fontWeight: '600' },
   scheduleToggle: { borderWidth: 1, borderColor: colors.line, borderRadius: 10, minWidth: 46, height: 30, alignItems: 'center', justifyContent: 'center', marginRight: 4 },
   scheduleToggleOn: { borderColor: 'rgba(66,214,138,0.5)', backgroundColor: 'rgba(66,214,138,0.08)' },
   scheduleToggleText: { color: colors.muted, fontSize: 11, fontWeight: '700' },

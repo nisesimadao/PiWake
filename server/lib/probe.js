@@ -23,9 +23,8 @@ export function tcpOpen(host, port, timeoutMs = 2000) {
   });
 }
 
-// A device counts as remotely usable once any common remote-access port answers.
-export async function remoteReady(host) {
-  const ports = [22, 3389];
+// A device counts as remotely usable once any remote-access port answers.
+export async function remoteReady(host, ports = [22, 3389]) {
   const results = await Promise.all(ports.map(port => tcpOpen(host, port)));
   return results.some(Boolean);
 }

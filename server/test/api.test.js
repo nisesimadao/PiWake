@@ -178,6 +178,48 @@ test('schedule CRUD with validation, removed with its device', async () => {
   assert.equal(remaining.some(item => item.id === schedule.id), false);
 });
 
+test('os, port and webUrl fields validate and round-trip', async () => {
+  const badOs = await fetch(`${open.base}/api/devices`, {
+    method: 'POST', headers: jsonHeaders(),
+    body: JSON.stringify({ name: 'Bad OS', mac: 'AA:BB:CC:DD:EE:31', os: 'templeos' }),
+  });
+  assert.equal(badOs.status, 400);
+
+  const created = await fetch(`${open.base}/api/devices`, {
+    method: 'POST', headers: jsonHeaders(),
+    body: JSON.stringify({ name: 'OS PC', mac: 'AA:BB:CC:DD:EE:32', localIp: '127.0.0.1', os: 'windows', sshPort: 2222, webUrl: 'http://127.0.0.1:5000' }),
+  });
+  assert.equal(created.status, 201);
+  const device = await created.json();
+  assert.equal(device.os, 'windows');
+  assert.equal(device.sshPort, 2222);
+  assert.equal(device.webUrl, 'http://127.0.0.1:5000');
+
+  const badPort = await fetch(`${open.base}/api/devices/${device.id}`, {
+    method: 'PATCH', headers: jsonHeaders(), body: JSON.stringify({ sshPort: 99999 }),
+  });
+  assert.equal(badPort.status, 400);
+
+  const badUrl = await fetch(`${open.base}/api/devices/${device.id}`, {
+    method: 'PATCH', headers: jsonHeaders(), body: JSON.stringify({ webUrl: 'ftp://nope' }),
+  });
+  assert.equal(badUrl.status, 400);
+
+  const patched = await fetch(`${open.base}/api/devices/${device.id}`, {
+    method: 'PATCH', headers: jsonHeaders(), body: JSON.stringify({ os: 'linux', rdpPort: 3390 }),
+  }).then(r => r.json());
+  assert.equal(patched.os, 'linux');
+  assert.equal(patched.rdpPort, 3390);
+
+  const services = await fetch(`${open.base}/api/devices/${device.id}/services`).then(r => r.json());
+  assert.equal(services.ssh.port, 2222);
+  assert.equal(services.rdp.port, 3390);
+  assert.equal(typeof services.ssh.up, 'boolean');
+  assert.equal(services.web.url, 'http://127.0.0.1:5000');
+
+  await fetch(`${open.base}/api/devices/${device.id}`, { method: 'DELETE' });
+});
+
 test('SPA fallback serves HTML for app routes', async () => {
   const res = await fetch(`${open.base}/devices`);
   // 200 with the built UI, or 404 with a plain-text hint when dist/ is absent.

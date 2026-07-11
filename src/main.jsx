@@ -9,15 +9,16 @@ import {
 } from 'lucide-react';
 import './styles.css';
 import { loadAppState, resetAppState, saveAppState } from './lib/appState';
+import { OsIcon, OS_OPTIONS } from './components/osIcons';
 import { eventsUrl, getApiToken, piwakeClient, runtime, setApiToken } from './services/piwakeClient';
 
 const isApi = runtime.mode === 'api';
 
 const demoHost = { name: 'raspberrypi-5', tempC: 46, load1: 0.2, uptimeSeconds: 195000, tailscaleIp: '100.100.1.1', tailscaleOnline: true };
 const seedDevices = [
-  { id: 'main', name: 'Main PC', kind: 'pc', ip: '100.100.1.23', mac: 'D4:5D:64:12:34:56', status: 'offline', last: '3日前', location: 'Home Office' },
-  { id: 'sub', name: 'Sub PC', kind: 'pc', ip: '100.100.1.42', mac: '8C:47:BE:20:11:08', status: 'offline', last: '昨日', location: 'Desk' },
-  { id: 'server', name: 'Home Server', kind: 'server', ip: '100.100.1.10', mac: '60:A4:B7:09:CF:2A', status: 'online', last: 'いま', location: 'Rack' },
+  { id: 'main', name: 'Main PC', kind: 'pc', os: 'windows', ip: '100.100.1.23', mac: 'D4:5D:64:12:34:56', status: 'offline', last: '3日前', location: 'Home Office' },
+  { id: 'sub', name: 'Sub PC', kind: 'pc', os: 'macos', ip: '100.100.1.42', mac: '8C:47:BE:20:11:08', status: 'offline', last: '昨日', location: 'Desk' },
+  { id: 'server', name: 'Home Server', kind: 'server', os: 'linux', ip: '100.100.1.10', mac: '60:A4:B7:09:CF:2A', status: 'online', last: 'いま', location: 'Rack' },
 ];
 
 const demoDiscovered = [
@@ -27,26 +28,6 @@ const demoDiscovered = [
 ];
 
 const statusText = { online: 'Online', offline: 'Offline', asleep: 'Asleep' };
-
-const CONNECTIONS_KEY = 'piwake.connections.v1';
-const defaultConnectionPrefs = { methods: ['ssh', 'chrome', 'rdp'], webUrl: '' };
-
-function loadConnectionPrefs(deviceId) {
-  try {
-    const all = JSON.parse(localStorage.getItem(CONNECTIONS_KEY)) || {};
-    return { ...defaultConnectionPrefs, ...(all[deviceId] || {}) };
-  } catch {
-    return { ...defaultConnectionPrefs };
-  }
-}
-
-function saveConnectionPrefs(deviceId, prefs) {
-  try {
-    const all = JSON.parse(localStorage.getItem(CONNECTIONS_KEY)) || {};
-    all[deviceId] = prefs;
-    localStorage.setItem(CONNECTIONS_KEY, JSON.stringify(all));
-  } catch { /* Private browsing should not break settings. */ }
-}
 
 function timeAgo(iso) {
   if (!iso) return '未接続';
@@ -77,13 +58,18 @@ async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
-async function openSsh(device, toast) {
+function sshCommand(device) {
   const address = reachableAddress(device);
-  if (!address) return toast('接続先IPが設定されていません');
-  const target = `${device.user || 'pi'}@${address}`;
-  const copied = await copyText(`ssh ${target}`);
-  window.location.href = `ssh://${target}`;
-  toast(copied ? `「ssh ${target}」をコピーしました。開かない場合はターミナルに貼り付け` : `SSH先: ${target}`);
+  if (!address) return null;
+  return `ssh ${device.sshPort ? `-p ${device.sshPort} ` : ''}${device.user || 'pi'}@${address}`;
+}
+
+async function openSsh(device, toast) {
+  const command = sshCommand(device);
+  if (!command) return toast('接続先IPが設定されていません');
+  const copied = await copyText(command);
+  window.location.href = `ssh://${device.user || 'pi'}@${reachableAddress(device)}${device.sshPort ? `:${device.sshPort}` : ''}`;
+  toast(copied ? `「${command}」をコピーしました。開かない場合はターミナルに貼り付け` : command);
 }
 
 function openChromeRemoteDesktop(toast) {
@@ -94,9 +80,10 @@ function openChromeRemoteDesktop(toast) {
 async function openRdp(device, toast) {
   const address = reachableAddress(device);
   if (!address) return toast('接続先IPが設定されていません');
-  const copied = await copyText(address);
-  window.location.href = `rdp://full%20address=s:${address}`;
-  toast(copied ? `${address} をコピーしました。開かない場合はRDPアプリに貼り付け` : `RDP先: ${address}`);
+  const target = device.rdpPort ? `${address}:${device.rdpPort}` : address;
+  const copied = await copyText(target);
+  window.location.href = `rdp://full%20address=s:${target}`;
+  toast(copied ? `${target} をコピーしました。開かない場合はRDPアプリに貼り付け` : `RDP先: ${target}`);
 }
 
 function notifyReady(name) {
@@ -116,12 +103,18 @@ function Status({ value = 'offline', children }) {
   return <span className={`status status-${value}`}><i />{children || statusText[value]}</span>;
 }
 
+function hostTailscaleState(hostInfo) {
+  if (hostInfo.tailscaleOnline === true) return { value: 'online', label: 'Tailscale connected' };
+  if (hostInfo.tailscaleOnline === false) return { value: 'offline', label: 'Tailscale offline' };
+  return { value: 'asleep', label: '接続確認中…' };
+}
+
 function HostBar({ hostInfo, onOpen }) {
-  const online = hostInfo.tailscaleOnline !== false;
+  const tailscale = hostTailscaleState(hostInfo);
   return (
     <button className="host-bar squircle" onClick={onOpen}>
-      <span className="host-mark"><Cpu size={20} /></span>
-      <span className="host-copy"><strong>{hostInfo.name}</strong><Status value={online ? 'online' : 'offline'}>{online ? 'Tailscale connected' : 'Tailscale offline'}</Status></span>
+      <span className="host-mark"><OsIcon os="raspberrypi" size={20} /></span>
+      <span className="host-copy"><strong>{hostInfo.name}</strong><Status value={tailscale.value}>{tailscale.label}</Status></span>
       {hostInfo.tempC != null && <span className="host-meta"><Thermometer size={14} /> {hostInfo.tempC}°</span>}
       <ChevronRight size={18} />
     </button>
@@ -129,9 +122,10 @@ function HostBar({ hostInfo, onOpen }) {
 }
 
 function DeviceGlyph({ device, size = 26 }) {
-  const glyphs = { host: Cpu, server: Server, pc: Monitor };
-  const Glyph = glyphs[device.kind] || Monitor;
-  return <span className={`device-glyph ${device.kind === 'host' ? 'host-glyph' : ''}`}><Glyph size={size} strokeWidth={1.7} /></span>;
+  const os = device.os || (device.kind === 'host' ? 'raspberrypi' : null);
+  if (os) return <span className={`device-glyph ${device.kind === 'host' ? 'host-glyph' : ''}`}><OsIcon os={os} size={size * 0.92} /></span>;
+  const Glyph = device.kind === 'server' ? Server : Monitor;
+  return <span className="device-glyph"><Glyph size={size} strokeWidth={1.7} /></span>;
 }
 
 function Nav({ view, setView }) {
@@ -227,11 +221,16 @@ function DevicesView({ devices, selectedId, selectDevice, setView, hostInfo }) {
   </>;
 }
 
-function ConnectionRow({ icon: Glyph, title, detail, accent, onClick }) {
+function ConnectionRow({ icon: Glyph, title, detail, accent, right, onClick }) {
   return <button className="connection-row" onClick={onClick}>
     <span className={accent ? 'connection-icon accent' : 'connection-icon'}><Glyph size={19} /></span>
-    <span><strong>{title}</strong><small>{detail}</small></span><ChevronRight size={17} />
+    <span><strong>{title}</strong><small>{detail}</small></span>{right}<ChevronRight size={17} />
   </button>;
+}
+
+function ServiceDot({ state }) {
+  if (state == null) return null;
+  return <Status value={state ? 'online' : 'offline'}>{state ? 'Up' : 'Down'}</Status>;
 }
 
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -291,10 +290,21 @@ function ScheduleSection({ device, toast }) {
   </>;
 }
 
-function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, togglePin, toast }) {
+function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, togglePin, patchDevice, toast }) {
+  const [services, setServices] = useState(null);
+  const deviceId = device?.id;
+  const deviceStatus = device?.status;
+  useEffect(() => {
+    if (!isApi || !deviceId) return;
+    let cancelled = false;
+    setServices(null);
+    piwakeClient.getServices(deviceId)
+      .then(result => { if (!cancelled) setServices(result); })
+      .catch(() => { /* probe is best-effort */ });
+    return () => { cancelled = true; };
+  }, [deviceId, deviceStatus]);
   if (!device) return null;
   const address = reachableAddress(device);
-  const prefs = loadConnectionPrefs(device.id);
   const online = device.status === 'online';
   return <>
     <AppHeader title={device.name} eyebrow="Managed device" onBack={() => setView('devices')} trailing={<>
@@ -308,11 +318,20 @@ function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, 
       {!online && <button className="primary-action" onClick={() => startWake(device)}><Power size={20} />Wake and connect</button>}
       <div className="section-label">Connection stack</div>
       <section className="connection-list squircle">
-        {prefs.methods.includes('ssh') && <ConnectionRow icon={Terminal} title="SSH" detail={`ssh ${device.user || 'pi'}@${address || '—'}`} accent onClick={() => openSsh(device, toast)} />}
-        {prefs.methods.includes('chrome') && <ConnectionRow icon={ExternalLink} title="Chrome Remote Desktop" detail="要・PC側の事前設定" onClick={() => openChromeRemoteDesktop(toast)} />}
-        {prefs.methods.includes('rdp') && <ConnectionRow icon={Desktop} title="RDP" detail={address ? `rdp://${address}` : 'Microsoft Remote Desktop'} onClick={() => openRdp(device, toast)} />}
-        {prefs.methods.includes('web') && <ConnectionRow icon={Globe2} title="Web service" detail={prefs.webUrl || 'URL未設定'} onClick={() => prefs.webUrl ? window.open(prefs.webUrl, '_blank', 'noopener') : setView('connections')} />}
+        <ConnectionRow icon={Terminal} title="SSH" detail={sshCommand(device) || 'IP未設定'} accent right={<ServiceDot state={services?.ssh?.up} />} onClick={() => openSsh(device, toast)} />
+        <ConnectionRow icon={ExternalLink} title="Chrome Remote Desktop" detail="要・PC側の事前設定" onClick={() => openChromeRemoteDesktop(toast)} />
+        <ConnectionRow icon={Desktop} title="RDP" detail={address ? `${address}:${device.rdpPort || 3389}` : 'Microsoft Remote Desktop'} right={<ServiceDot state={services?.rdp?.up} />} onClick={() => openRdp(device, toast)} />
+        {device.webUrl && <ConnectionRow icon={Globe2} title="Web service" detail={device.webUrl} right={<ServiceDot state={services?.web?.up} />} onClick={() => window.open(device.webUrl, '_blank', 'noopener')} />}
       </section>
+      <div className="section-label">OS</div>
+      <div className="os-chips">
+        {OS_OPTIONS.map(option => (
+          <button key={option.id} type="button" className={`os-chip squircle ${device.os === option.id ? 'active' : ''}`}
+            onClick={() => patchDevice(device, { os: device.os === option.id ? null : option.id })}>
+            <OsIcon os={option.id} size={17} /><span>{option.label}</span>
+          </button>
+        ))}
+      </div>
       <div className="section-label">Device</div>
       <section className="facts detail-facts squircle">
         <div><dt>MAC</dt><dd>{device.mac}</dd></div>
@@ -321,7 +340,7 @@ function DetailView({ device, setView, startWake, removeDevice, shutdownDevice, 
         <div><dt>Last seen</dt><dd>{deviceLast(device)}</dd></div>
       </section>
       <section className="setting-list squircle">
-        <button onClick={() => setView('connections')}><Network size={18} /><span>接続方法の設定</span><ChevronRight size={17} /></button>
+        <button onClick={() => setView('connections')}><Network size={18} /><span>接続設定（SSHユーザー・ポート・Web URL）</span><ChevronRight size={17} /></button>
       </section>
       {isApi && <ScheduleSection device={device} toast={toast} />}
       {online && <button className="secondary-action danger" onClick={() => shutdownDevice(device)}><Power size={18} />Shut down {device.name}</button>}
@@ -427,10 +446,20 @@ function ManualForm({ addDevice }) {
   const [tailscaleIp, setTailscaleIp] = useState('');
   const [mac, setMac] = useState('');
   const [user, setUser] = useState('');
+  const [os, setOs] = useState(null);
   return <form className="manual-form squircle" onSubmit={e => {
     e.preventDefault();
-    addDevice({ name: name.trim(), localIp: localIp.trim(), ip: tailscaleIp.trim() || null, mac: mac.toUpperCase(), user: user.trim() || null, kind: 'pc' });
+    addDevice({ name: name.trim(), localIp: localIp.trim(), ip: tailscaleIp.trim() || null, mac: mac.toUpperCase(), user: user.trim() || null, os, kind: os === 'linux' ? 'server' : 'pc' });
   }}>
+    <label>OS（アイコンに使われます・任意）</label>
+    <div className="os-chips in-form">
+      {OS_OPTIONS.map(option => (
+        <button key={option.id} type="button" className={`os-chip squircle ${os === option.id ? 'active' : ''}`}
+          onClick={() => setOs(current => current === option.id ? null : option.id)}>
+          <OsIcon os={option.id} size={16} /><span>{option.label}</span>
+        </button>
+      ))}
+    </div>
     <label>デバイス名<input required maxLength="48" autoComplete="off" value={name} onChange={e => setName(e.target.value)} /></label>
     <label>ローカルIP
       <input required inputMode="decimal" autoComplete="off" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$" title="192.168.1.20 の形式で入力" value={localIp} onChange={e => setLocalIp(e.target.value)} />
@@ -446,12 +475,12 @@ function ManualForm({ addDevice }) {
   </form>;
 }
 
-function HostDetail({ setView, toast, hostInfo, shutdownHost }) {
-  const online = hostInfo.tailscaleOnline !== false;
+function HostDetail({ setView, toast, hostInfo, apiOk, shutdownHost }) {
+  const tailscale = hostTailscaleState(hostInfo);
   return <>
     <AppHeader title="Raspberry Pi host" onBack={() => setView('home')} />
     <main className="screen-body detail-body">
-      <section className="host-hero"><span className="host-mark large"><Cpu size={34} /></span><div><h1>{hostInfo.name}</h1><Status value={online ? 'online' : 'offline'}>{online ? 'Tailscale connected' : 'Tailscale offline'}</Status></div></section>
+      <section className="host-hero"><span className="host-mark large"><OsIcon os="raspberrypi" size={32} /></span><div><h1>{hostInfo.name}</h1><Status value={tailscale.value}>{tailscale.label}</Status></div></section>
       <section className="host-metrics squircle">
         <div><Thermometer /><strong>{hostInfo.tempC != null ? `${hostInfo.tempC}°` : '—'}</strong><span>CPU temp</span></div>
         <div><Gauge /><strong>{hostInfo.load1 != null ? hostInfo.load1 : '—'}</strong><span>Load avg</span></div>
@@ -465,9 +494,9 @@ function HostDetail({ setView, toast, hostInfo, shutdownHost }) {
       </section>
       <div className="section-label">Host services</div>
       <section className="service-panel squircle">
-        <div><ShieldCheck /><span><strong>PiWake API</strong><Status value={isApi ? 'online' : 'asleep'}>{isApi ? 'Online' : 'Demo'}</Status></span></div>
-        <div><Network /><span><strong>LAN relay</strong><Status value="online" /></span></div>
-        <div><Router /><span><strong>Tailscale</strong><Status value={online ? 'online' : 'offline'} /></span></div>
+        <div><ShieldCheck /><span><strong>PiWake API</strong><Status value={apiOk == null ? 'asleep' : apiOk ? 'online' : 'offline'}>{apiOk == null ? 'Demo' : apiOk ? 'Online' : 'Unreachable'}</Status></span></div>
+        <div><Network /><span><strong>LAN relay</strong><Status value={apiOk == null ? 'asleep' : apiOk ? 'online' : 'offline'}>{apiOk == null ? 'Demo' : apiOk ? 'Online' : 'Unknown'}</Status></span></div>
+        <div><Router /><span><strong>Tailscale</strong><Status value={tailscale.value} /></span></div>
       </section>
       <button className="secondary-action danger" onClick={shutdownHost}><Power size={18} />Shut down Raspberry Pi</button>
       <p className="danger-note">停止すると、すべてのWake-on-LANとリモート接続が使えなくなります。</p>
@@ -545,7 +574,7 @@ function SettingsView({ setView, toast, resetDemo, apiIssue }) {
   const tailnetOk = isApi ? !apiIssue : true;
   return <><AppHeader title="Settings" onBack={() => setView('home')} /><main className="screen-body">
     <section className="settings-intro"><ShieldCheck size={30} /><h1>Tailscale-first</h1><p>PiWakeは公開ポートを使わず、あなたのtailnet内だけで通信します。</p></section>
-    <div className="section-label">Runtime</div><section className="runtime-panel squircle"><div><span className={`runtime-dot ${runtime.mode}`} /><span><strong>{runtime.label}</strong><small>{runtime.apiBaseUrl || 'Local state · no network calls'}</small></span></div><button type="button" onClick={checkConnection} disabled={checking}>{checking ? 'Checking…' : 'Check'}</button></section>
+    <div className="section-label">Runtime</div><section className="runtime-panel squircle"><div><span className={`runtime-dot ${runtime.mode}${isApi && apiIssue ? ' down' : ''}`} /><span><strong>{runtime.label}</strong><small>{isApi && apiIssue ? apiIssue : (runtime.apiBaseUrl || 'Local state · no network calls')}</small></span></div><button type="button" onClick={checkConnection} disabled={checking}>{checking ? 'Checking…' : 'Check'}</button></section>
     {isApi && <>
       <div className="section-label">API token</div>
       <form className="manual-form squircle token-form" onSubmit={saveToken}>
@@ -555,26 +584,46 @@ function SettingsView({ setView, toast, resetDemo, apiIssue }) {
         <button className="secondary-action" type="submit">保存</button>
       </form>
     </>}
-    <div className="section-label">Security</div><section className="setting-list squircle"><button><ShieldCheck size={18} /><span>Tailnet access</span><Status value={tailnetOk ? 'online' : 'offline'}>{tailnetOk ? 'Connected' : 'Unreachable'}</Status></button><button onClick={checkConnection}><Network size={18} /><span>Connection diagnostics</span><ChevronRight size={17} /></button></section>
+    <div className="section-label">Security</div><section className="setting-list squircle"><button><ShieldCheck size={18} /><span>Tailnet access</span><Status value={!isApi ? 'asleep' : tailnetOk ? 'online' : 'offline'}>{!isApi ? 'Demo' : tailnetOk ? 'Connected' : 'Unreachable'}</Status></button><button onClick={checkConnection}><Network size={18} /><span>Connection diagnostics</span><ChevronRight size={17} /></button></section>
     {runtime.mode === 'demo' && <button className="quiet-action reset-demo" type="button" onClick={resetDemo}>Reset demo data</button>}
   </main></>;
 }
 
-function ConnectionSetup({ device, setView, toast }) {
-  const [prefs, setPrefs] = useState(() => device ? loadConnectionPrefs(device.id) : { ...defaultConnectionPrefs });
+function ConnectionSetup({ device, setView, patchDevice, toast }) {
+  const [user, setUser] = useState(device?.user || '');
+  const [sshPort, setSshPort] = useState(device?.sshPort || '');
+  const [rdpPort, setRdpPort] = useState(device?.rdpPort || '');
+  const [webUrl, setWebUrl] = useState(device?.webUrl || '');
+  const [saving, setSaving] = useState(false);
   if (!device) return null;
-  const methods = [['ssh', Terminal, 'SSH', 'ターミナル接続'], ['chrome', ExternalLink, 'Chrome Remote Desktop', 'ブラウザ / アプリ（要・PC側の事前設定）'], ['rdp', Desktop, 'RDP', 'Microsoft Remote Desktop'], ['web', Globe2, 'Web URL', 'NASの管理画面など任意のURL']];
-  const togglemethod = id => setPrefs(p => ({ ...p, methods: p.methods.includes(id) ? p.methods.filter(x => x !== id) : [...p.methods, id] }));
-  const save = () => {
-    saveConnectionPrefs(device.id, prefs);
-    toast('接続方法を保存しました');
-    setView('detail');
+  const save = async event => {
+    event.preventDefault();
+    setSaving(true);
+    const ok = await patchDevice(device, {
+      user: user.trim() || null,
+      sshPort: sshPort ? Number(sshPort) : null,
+      rdpPort: rdpPort ? Number(rdpPort) : null,
+      webUrl: webUrl.trim() || null,
+    });
+    setSaving(false);
+    if (ok) {
+      toast('接続設定を保存しました');
+      setView('detail');
+    }
   };
-  return <><AppHeader title="Connection setup" eyebrow={device.name} onBack={() => setView('detail')} /><main className="screen-body"><p className="page-lead">起動後に使う接続方法を選んでください。デバイス詳細に表示されます。</p><section className="method-list">{methods.map(([id, Glyph, name, detail]) => <button className={`method squircle ${prefs.methods.includes(id) ? 'selected' : ''}`} key={id} onClick={() => togglemethod(id)}><Glyph size={22} /><span><strong>{name}</strong><small>{detail}</small></span><span className="check-box">{prefs.methods.includes(id) && <Check size={14} />}</span></button>)}</section>
-    {prefs.methods.includes('web') && <form className="manual-form squircle web-url-form" onSubmit={e => { e.preventDefault(); save(); }}>
-      <label>Web URL<input type="url" placeholder="http://192.168.1.90:5000" value={prefs.webUrl} onChange={e => setPrefs(p => ({ ...p, webUrl: e.target.value }))} /></label>
-    </form>}
-    <button className="primary-action" onClick={save}>保存する</button></main></>;
+  return <><AppHeader title="Connection setup" eyebrow={device.name} onBack={() => setView('detail')} /><main className="screen-body">
+    <p className="page-lead">SSH・RDP・Webサービスの接続情報です。接続コマンドと稼働状態の判定に使われます。</p>
+    <form className="manual-form squircle" onSubmit={save}>
+      <label>SSHユーザー名（既定は pi）<input autoComplete="off" placeholder="pi" value={user} onChange={e => setUser(e.target.value)} /></label>
+      <label>SSHポート（既定は 22）<input type="number" min="1" max="65535" inputMode="numeric" placeholder="22" value={sshPort} onChange={e => setSshPort(e.target.value)} /></label>
+      <label>RDPポート（既定は 3389）<input type="number" min="1" max="65535" inputMode="numeric" placeholder="3389" value={rdpPort} onChange={e => setRdpPort(e.target.value)} /></label>
+      <label>Web URL（NASの管理画面など・任意）
+        <input type="url" autoComplete="off" placeholder="http://192.168.1.90:5000" value={webUrl} onChange={e => setWebUrl(e.target.value)} />
+        <small className="field-hint">設定するとデバイス詳細に「Web service」の接続導線と稼働状態が表示されます</small>
+      </label>
+      <button className="primary-action" type="submit" disabled={saving}>{saving ? '保存中…' : '保存する'}</button>
+    </form>
+  </main></>;
 }
 
 const jobStateToStep = { packet_sent: 1, responding: 2, reachable: 3, ready: 4 };
@@ -585,7 +634,9 @@ function App() {
   const [view, setView] = useState('home');
   const [devices, setDevices] = useState(isApi ? [] : initialState.devices);
   const [selectedId, setSelectedId] = useState(initialState.selectedId);
-  const [hostInfo, setHostInfo] = useState(demoHost);
+  const [hostInfo, setHostInfo] = useState(isApi
+    ? { name: 'Raspberry Pi', tempC: null, load1: null, uptimeSeconds: NaN, tailscaleIp: null, tailscaleOnline: null }
+    : demoHost);
   const [apiIssue, setApiIssue] = useState('');
   const [wakeDevice, setWakeDevice] = useState(null);
   const [wakeJobId, setWakeJobId] = useState(null);
@@ -785,18 +836,25 @@ function App() {
     }
   };
 
-  const togglePin = async device => {
-    const next = !device.pinned;
+  const patchDevice = async (device, patch) => {
     try {
       if (isApi) {
-        await piwakeClient.updateDevice(device.id, { pinned: next });
+        await piwakeClient.updateDevice(device.id, patch);
         await refreshFromApi();
       } else {
-        setDevices(ds => ds.map(d => d.id === device.id ? { ...d, pinned: next } : d));
+        setDevices(ds => ds.map(d => d.id === device.id ? { ...d, ...patch } : d));
       }
+      return true;
+    } catch (error) {
+      toast(error.status === 400 ? error.message : '更新できませんでした');
+      return false;
+    }
+  };
+
+  const togglePin = async device => {
+    const next = !device.pinned;
+    if (await patchDevice(device, { pinned: next })) {
       toast(next ? 'ピン留めしました' : 'ピン留めを解除しました');
-    } catch {
-      toast('更新できませんでした');
     }
   };
 
@@ -808,19 +866,24 @@ function App() {
     [devices],
   );
 
+  // Keep every status indicator consistent: when the API is unreachable, the
+  // host cannot be claimed online no matter what the last snapshot said.
+  const hostView = isApi && apiIssue ? { ...hostInfo, tailscaleOnline: false, tempC: null } : hostInfo;
+  const apiOk = isApi ? !apiIssue : null;
+
   const content = (() => {
-    if (view === 'home') return <HomeView devices={orderedDevices} selectedId={selectedId} setSelectedId={setSelectedId} setView={setView} startWake={startWake} toast={toast} hostInfo={hostInfo} />;
-    if (view === 'devices') return <DevicesView devices={orderedDevices} selectedId={selectedId} selectDevice={setSelectedId} setView={setView} hostInfo={hostInfo} />;
-    if (view === 'detail') return <DetailView device={selected} setView={setView} startWake={startWake} removeDevice={removeDevice} shutdownDevice={shutdownDevice} togglePin={togglePin} toast={toast} />;
+    if (view === 'home') return <HomeView devices={orderedDevices} selectedId={selectedId} setSelectedId={setSelectedId} setView={setView} startWake={startWake} toast={toast} hostInfo={hostView} />;
+    if (view === 'devices') return <DevicesView devices={orderedDevices} selectedId={selectedId} selectDevice={setSelectedId} setView={setView} hostInfo={hostView} />;
+    if (view === 'detail') return <DetailView device={selected} setView={setView} startWake={startWake} removeDevice={removeDevice} shutdownDevice={shutdownDevice} togglePin={togglePin} patchDevice={patchDevice} toast={toast} />;
     if (view === 'waking') return <WakeProgress device={wakeDevice || selected} step={step} failed={wakeFailed} cancel={cancelWake} finish={finishWake} />;
-    if (view === 'add') return <AddDevice onBack={() => setView('devices')} addDevice={addDevice} setView={setView} hostInfo={hostInfo} toast={toast} />;
-    if (view === 'host') return <HostDetail setView={setView} toast={toast} hostInfo={hostInfo} shutdownHost={shutdownHost} />;
+    if (view === 'add') return <AddDevice onBack={() => setView('devices')} addDevice={addDevice} setView={setView} hostInfo={hostView} toast={toast} />;
+    if (view === 'host') return <HostDetail setView={setView} toast={toast} hostInfo={hostView} apiOk={apiOk} shutdownHost={shutdownHost} />;
     if (view === 'activity') return <ActivityView toast={toast} />;
     if (view === 'settings') return <SettingsView setView={setView} toast={toast} resetDemo={resetDemo} apiIssue={apiIssue} />;
-    if (view === 'connections') return <ConnectionSetup device={selected} setView={setView} toast={toast} />;
+    if (view === 'connections') return <ConnectionSetup device={selected} setView={setView} patchDevice={patchDevice} toast={toast} />;
   })();
   const showNav = ['home', 'devices', 'activity'].includes(view);
-  return <div className="site-shell"><div className="ambient" /><aside className="desktop-rail"><div className="brand"><Power size={20} /><span>PiWake</span></div><p>Home access,<br />quietly handled.</p><nav><button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}><Home />Home</button><button className={view === 'devices' ? 'active' : ''} onClick={() => setView('devices')}><Server />Devices</button><button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}><Activity />Activity</button></nav><div className="rail-footer"><div className="rail-runtime"><Status value={apiIssue ? 'offline' : 'online'}>{apiIssue ? 'API unreachable' : 'Tailnet connected'}</Status><small>{runtime.label}</small></div><button onClick={() => setView('settings')}><Settings size={17} />Settings</button></div></aside><div className="app-frame">{apiIssue && <button className="api-banner" onClick={() => setView('settings')}><Wifi size={14} />{apiIssue}<ChevronRight size={14} /></button>}{content}{showNav && <Nav view={view} setView={setView} />}{confirming && wakeDevice && <WakeConfirm device={wakeDevice} hostName={hostInfo.name} onCancel={() => setConfirming(false)} onConfirm={confirmWake} />}{toastMessage && <div className="toast" role="status" aria-live="polite"><Check size={16} />{toastMessage}</div>}</div></div>;
+  return <div className="site-shell"><div className="ambient" /><aside className="desktop-rail"><div className="brand"><Power size={20} /><span>PiWake</span></div><p>Home access,<br />quietly handled.</p><nav><button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}><Home />Home</button><button className={view === 'devices' ? 'active' : ''} onClick={() => setView('devices')}><Server />Devices</button><button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}><Activity />Activity</button></nav><div className="rail-footer"><div className="rail-runtime"><Status value={!isApi ? 'asleep' : apiIssue ? 'offline' : 'online'}>{!isApi ? 'Demo mode' : apiIssue ? 'API unreachable' : 'Tailnet connected'}</Status><small>{runtime.label}</small></div><button onClick={() => setView('settings')}><Settings size={17} />Settings</button></div></aside><div className="app-frame">{apiIssue && <button className="api-banner" onClick={() => setView('settings')}><Wifi size={14} />{apiIssue}<ChevronRight size={14} /></button>}{content}{showNav && <Nav view={view} setView={setView} />}{confirming && wakeDevice && <WakeConfirm device={wakeDevice} hostName={hostInfo.name} onCancel={() => setConfirming(false)} onConfirm={confirmWake} />}{toastMessage && <div className="toast" role="status" aria-live="polite"><Check size={16} />{toastMessage}</div>}</div></div>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);

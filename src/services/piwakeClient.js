@@ -69,6 +69,10 @@ export const piwakeClient = {
     if (demoMode) return patch;
     return request(`/api/devices/${encodeURIComponent(deviceId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
   },
+  async getServices(deviceId) {
+    if (demoMode) return null;
+    return request(`/api/devices/${encodeURIComponent(deviceId)}/services`);
+  },
   async listSchedules() {
     if (demoMode) return [];
     return request('/api/schedules');

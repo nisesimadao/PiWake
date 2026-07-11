@@ -7,7 +7,7 @@ import net from 'node:net';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { sendMagicPacket, parseMac } from './lib/wol.js';
-import { ping, remoteReady } from './lib/probe.js';
+import { ping, remoteReady, tcpOpen } from './lib/probe.js';
 import { hostSnapshot } from './lib/metrics.js';
 import { scanNeighbours } from './lib/scan.js';
 import { readJson, writeJson, dataDir } from './lib/store.js';
@@ -52,8 +52,16 @@ function logActivity(deviceName, action, result = 'neutral') {
 }
 
 function publicDevice(device) {
-  const { id, name, kind, mac, ip, localIp, location, user, status, lastSeenAt, pinned } = device;
-  return { id, name, kind, mac, ip, localIp, location, user, status: status || 'offline', lastSeenAt: lastSeenAt || null, pinned: Boolean(pinned) };
+  const { id, name, kind, mac, ip, localIp, location, user, status, lastSeenAt, pinned, os, sshPort, rdpPort, webUrl } = device;
+  return {
+    id, name, kind, mac, ip, localIp, location, user,
+    status: status || 'offline', lastSeenAt: lastSeenAt || null, pinned: Boolean(pinned),
+    os: os || null, sshPort: sshPort || null, rdpPort: rdpPort || null, webUrl: webUrl || null,
+  };
+}
+
+function devicePorts(device) {
+  return [device.sshPort || 22, device.rdpPort || 3389];
 }
 
 // ------------------------------------------------- server-sent events
@@ -123,7 +131,7 @@ async function runWakeJob(job, device) {
       } else if (job.state === 'responding') {
         if (!device.ip || await ping(device.ip)) update('reachable');
       } else if (job.state === 'reachable') {
-        if (await remoteReady(reachHost)) {
+        if (await remoteReady(reachHost, devicePorts(device))) {
           update('ready');
           device.status = 'online';
           device.lastSeenAt = new Date().toISOString();
@@ -162,6 +170,7 @@ function startWakeJob(device) {
 }
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+const OS_VALUES = ['windows', 'macos', 'linux', 'raspberrypi'];
 const SSH_USER_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]{0,31}$/;
 const HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 
@@ -183,6 +192,20 @@ function validateDeviceFields(body, { partial = false } = {}) {
     }
   }
   if ('pinned' in body && typeof body.pinned !== 'boolean') return { error: 'pinned must be a boolean.' };
+  if ('os' in body && body.os != null && body.os !== '' && !OS_VALUES.includes(body.os)) {
+    return { error: `os must be one of: ${OS_VALUES.join(', ')}.` };
+  }
+  for (const key of ['sshPort', 'rdpPort']) {
+    if (!(key in body) || body[key] == null || body[key] === '') continue;
+    const port = Number(body[key]);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return { error: `${key} must be a port number (1-65535).` };
+  }
+  if ('webUrl' in body && body.webUrl != null && body.webUrl !== '') {
+    if (typeof body.webUrl !== 'string' || !/^https?:\/\//i.test(body.webUrl.trim())) {
+      return { error: 'webUrl must start with http:// or https://.' };
+    }
+    try { new URL(body.webUrl.trim()); } catch { return { error: 'webUrl must be a valid URL.' }; }
+  }
   return {};
 }
 
@@ -233,6 +256,7 @@ function shutdownOverSsh(device) {
   return new Promise(resolve => {
     execFile('ssh', [
       '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=accept-new',
+      ...(device.sshPort ? ['-p', String(device.sshPort)] : []),
       target, command,
     ], { timeout: 15000 }, error => {
       // A successful shutdown usually kills the connection (non-zero exit).
@@ -375,6 +399,10 @@ async function handleApi(req, res, url) {
       localIp: String(body.localIp || '').trim() || null,
       location: String(body.location || '').trim() || 'Home',
       user: String(body.user || '').trim() || null,
+      os: OS_VALUES.includes(body.os) ? body.os : null,
+      sshPort: body.sshPort ? Number(body.sshPort) : null,
+      rdpPort: body.rdpPort ? Number(body.rdpPort) : null,
+      webUrl: String(body.webUrl || '').trim() || null,
       status: 'offline',
       lastSeenAt: null,
       pinned: false,
@@ -408,8 +436,11 @@ async function handleApi(req, res, url) {
       const body = await readBody(req);
       const fields = validateDeviceFields(body, { partial: true });
       if (fields.error) return json(res, 400, { error: fields.error });
-      for (const key of ['name', 'ip', 'localIp', 'location', 'user']) {
+      for (const key of ['name', 'ip', 'localIp', 'location', 'user', 'os', 'webUrl']) {
         if (key in body) device[key] = String(body[key] || '').trim() || null;
+      }
+      for (const key of ['sshPort', 'rdpPort']) {
+        if (key in body) device[key] = body[key] ? Number(body[key]) : null;
       }
       if ('pinned' in body) device.pinned = body.pinned;
       persistDevices();
@@ -422,6 +453,29 @@ async function handleApi(req, res, url) {
       logActivity(device.name, 'Magic packet sent', 'neutral');
       const job = startWakeJob(device);
       return json(res, 202, { jobId: job.id, deviceId: device.id, state: job.state });
+    }
+
+    if (req.method === 'GET' && segments[3] === 'services') {
+      const address = device.ip || device.localIp;
+      const [sshPort, rdpPort] = devicePorts(device);
+      let webTarget = null;
+      if (device.webUrl) {
+        try {
+          const parsed = new URL(device.webUrl);
+          webTarget = { host: parsed.hostname, port: Number(parsed.port) || (parsed.protocol === 'https:' ? 443 : 80) };
+        } catch { /* invalid stored URL — report web as unknown */ }
+      }
+      if (!address) return json(res, 200, { ssh: null, rdp: null, web: null });
+      const [ssh, rdp, web] = await Promise.all([
+        tcpOpen(address, sshPort),
+        tcpOpen(address, rdpPort),
+        webTarget ? tcpOpen(webTarget.host, webTarget.port) : Promise.resolve(null),
+      ]);
+      return json(res, 200, {
+        ssh: { up: ssh, port: sshPort },
+        rdp: { up: rdp, port: rdpPort },
+        web: webTarget ? { up: web, url: device.webUrl } : null,
+      });
     }
 
     if (req.method === 'POST' && segments[3] === 'shutdown') {

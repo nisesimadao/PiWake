@@ -1,4 +1,4 @@
-# PiWake
+<p align="center"><img src="docs/logo.png" width="460" alt="PiWake — Wake your home, from anywhere."></p>
 
 <p>
   <img alt="Node.js 18+" src="https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white">
@@ -23,7 +23,8 @@ Turn your Raspberry Pi into a Wake-on-LAN relay and wake, watch, and connect to 
 - **Remote shutdown** — power machines off over key-based SSH from the Pi; shut down the Pi itself too.
 - **Live device status** — 10-second ping polling pushed to the UI over Server-Sent Events.
 - **Network scan** — one-tap adding of LAN devices discovered from the Pi's ARP table.
-- **Connection launchpad** — SSH (`ssh://` + command copied to clipboard), Chrome Remote Desktop, RDP, and custom web URLs (NAS dashboards, Proxmox, …).
+- **Connection launchpad** — SSH (custom ports, command copied to clipboard), Chrome Remote Desktop, RDP, and custom web URLs (NAS dashboards, Proxmox, …), each with **live port-probe status**. Per-device SSH user/port, RDP port and web URL are stored server-side and shared between web and mobile.
+- **OS icons** — tag each device as Windows / macOS / Linux / Raspberry Pi and its logo (Font Awesome Brands) shows everywhere.
 - **Host monitoring** — CPU temperature, load average, uptime, Tailscale state.
 - **PWA** — add it to your phone's home screen and it behaves like a native app, with a service-worker offline shell.
 - **Native mobile app** — a React Native (Expo) app ships in [mobile/](mobile/); run it instantly with Expo Go.
@@ -85,7 +86,8 @@ npm test   # unit + API integration tests via node:test (zero dependencies)
 | `GET/POST` | `/api/devices` | List / add devices |
 | `PATCH/DELETE` | `/api/devices/:id` | Update / remove a device |
 | `POST` | `/api/devices/:id/wake` | Send magic packet, start a wake job |
-| `POST` | `/api/devices/:id/shutdown` | Shut down over SSH |
+| `POST` | `/api/devices/:id/shutdown` | Shut down over SSH (custom port aware) |
+| `GET` | `/api/devices/:id/services` | Live SSH / RDP / web port probes |
 | `GET/DELETE` | `/api/jobs/:id` | Wake job progress / cancel |
 | `GET/POST` | `/api/schedules` | List / add scheduled wakes (`{deviceId, time, days}`) |
 | `PATCH/DELETE` | `/api/schedules/:id` | Update / remove a schedule |
