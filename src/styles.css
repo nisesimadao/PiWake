@@ -16,7 +16,7 @@ button:focus-visible, input:focus-visible { outline:2px solid var(--blue); outli
 .ambient { position:fixed; inset:0; pointer-events:none; opacity:.32; background-image:linear-gradient(rgba(255,255,255,.015) 1px, transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px); background-size:32px 32px; mask-image:linear-gradient(to right, black, transparent 78%); }
 .desktop-rail { width:280px; padding:38px 28px; border-right:1px solid #20242b; display:flex; flex-direction:column; z-index:1; }
 .brand { display:flex; align-items:center; gap:10px; color:#ff5362; font-weight:700; font-size:22px; letter-spacing:-.04em; }
-.brand svg { background:var(--accent); color:white; border-radius:10px; padding:6px; width:32px; height:32px; }
+.brand-mark { width:34px; height:34px; border-radius:11px; }
 .desktop-rail>p { margin:42px 0 36px; color:#d7dae0; font-size:28px; line-height:1.05; letter-spacing:-.045em; }
 .desktop-rail nav { display:grid; gap:7px; }
 .desktop-rail nav button,.rail-footer button { border:0; background:transparent; display:flex; align-items:center; gap:12px; padding:13px 14px; border-radius:16px; color:var(--muted); cursor:pointer; text-align:left; }
