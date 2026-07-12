@@ -45,18 +45,18 @@ function sortedDevices() {
   return devices.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 }
 
-function logActivity(deviceName, action, result = 'neutral') {
-  activity.unshift({ id: crypto.randomUUID(), at: new Date().toISOString(), deviceName, action, result });
+function logActivity(deviceName, action, result = 'neutral', deviceId = null) {
+  activity.unshift({ id: crypto.randomUUID(), at: new Date().toISOString(), deviceId, deviceName, action, result });
   activity = activity.slice(0, 200);
   writeJson('activity', activity);
 }
 
 function publicDevice(device) {
-  const { id, name, kind, mac, ip, localIp, location, user, status, lastSeenAt, pinned, os, sshPort, rdpPort, webUrl } = device;
+  const { id, name, kind, mac, ip, localIp, location, user, status, lastSeenAt, pinned, os, osSource, sshPort, rdpPort, webUrl } = device;
   return {
     id, name, kind, mac, ip, localIp, location, user,
     status: status || 'offline', lastSeenAt: lastSeenAt || null, pinned: Boolean(pinned),
-    os: os || null, sshPort: sshPort || null, rdpPort: rdpPort || null, webUrl: webUrl || null,
+    os: os || null, osSource: osSource || 'inferred', sshPort: sshPort || null, rdpPort: rdpPort || null, webUrl: webUrl || null,
   };
 }
 
@@ -137,7 +137,7 @@ async function runWakeJob(job, device) {
           device.lastSeenAt = new Date().toISOString();
           persistDevices();
           broadcastDevices();
-          logActivity(device.name, 'Wake succeeded', 'success');
+          logActivity(device.name, 'Wake succeeded', 'success', device.id);
           retireJob(job);
           return;
         }
@@ -145,11 +145,11 @@ async function runWakeJob(job, device) {
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
     update('timeout');
-    logActivity(device.name, 'Wake timed out', 'warning');
+    logActivity(device.name, 'Wake timed out', 'warning', device.id);
   } catch (error) {
     update('failed');
     job.error = error.message;
-    logActivity(device.name, 'Wake failed', 'warning');
+    logActivity(device.name, 'Wake failed', 'warning', device.id);
   }
   retireJob(job);
 }
@@ -195,6 +195,7 @@ function validateDeviceFields(body, { partial = false } = {}) {
   if ('os' in body && body.os != null && body.os !== '' && !OS_VALUES.includes(body.os)) {
     return { error: `os must be one of: ${OS_VALUES.join(', ')}.` };
   }
+  if ('osSource' in body && !['manual', 'inferred'].includes(body.osSource)) return { error: 'osSource must be manual or inferred.' };
   for (const key of ['sshPort', 'rdpPort']) {
     if (!(key in body) || body[key] == null || body[key] === '') continue;
     const port = Number(body[key]);
@@ -235,10 +236,10 @@ async function checkSchedules() {
     if (!device) continue;
     try {
       await sendMagicPacket(device.mac, { address: BROADCAST });
-      logActivity(device.name, 'Scheduled wake', 'neutral');
+      logActivity(device.name, 'Scheduled wake', 'neutral', device.id);
       startWakeJob(device);
     } catch (error) {
-      logActivity(device.name, 'Scheduled wake failed', 'warning');
+      logActivity(device.name, 'Scheduled wake failed', 'warning', device.id);
     }
   }
   if (dirty) persistSchedules();
@@ -400,6 +401,7 @@ async function handleApi(req, res, url) {
       location: String(body.location || '').trim() || 'Home',
       user: String(body.user || '').trim() || null,
       os: OS_VALUES.includes(body.os) ? body.os : null,
+      osSource: OS_VALUES.includes(body.os) ? 'manual' : 'inferred',
       sshPort: body.sshPort ? Number(body.sshPort) : null,
       rdpPort: body.rdpPort ? Number(body.rdpPort) : null,
       webUrl: String(body.webUrl || '').trim() || null,
@@ -409,7 +411,7 @@ async function handleApi(req, res, url) {
     };
     devices.push(device);
     persistDevices();
-    logActivity(device.name, 'Device added', 'neutral');
+    logActivity(device.name, 'Device added', 'neutral', device.id);
     broadcastDevices();
     refreshStatuses();
     return json(res, 201, publicDevice(device));
@@ -427,7 +429,7 @@ async function handleApi(req, res, url) {
         schedules = remaining;
         persistSchedules();
       }
-      logActivity(device.name, 'Device removed', 'neutral');
+      logActivity(device.name, 'Device removed', 'neutral', device.id);
       broadcastDevices();
       return json(res, 204, null);
     }
@@ -436,7 +438,7 @@ async function handleApi(req, res, url) {
       const body = await readBody(req);
       const fields = validateDeviceFields(body, { partial: true });
       if (fields.error) return json(res, 400, { error: fields.error });
-      for (const key of ['name', 'ip', 'localIp', 'location', 'user', 'os', 'webUrl']) {
+      for (const key of ['name', 'ip', 'localIp', 'location', 'user', 'os', 'osSource', 'webUrl']) {
         if (key in body) device[key] = String(body[key] || '').trim() || null;
       }
       for (const key of ['sshPort', 'rdpPort']) {
@@ -450,7 +452,7 @@ async function handleApi(req, res, url) {
 
     if (req.method === 'POST' && segments[3] === 'wake') {
       await sendMagicPacket(device.mac, { address: BROADCAST });
-      logActivity(device.name, 'Magic packet sent', 'neutral');
+      logActivity(device.name, 'Magic packet sent', 'neutral', device.id);
       const job = startWakeJob(device);
       return json(res, 202, { jobId: job.id, deviceId: device.id, state: job.state });
     }
@@ -481,7 +483,7 @@ async function handleApi(req, res, url) {
     if (req.method === 'POST' && segments[3] === 'shutdown') {
       const result = await shutdownOverSsh(device);
       if (!result.sent) return json(res, 502, { error: result.error });
-      logActivity(device.name, 'Shutdown requested', 'neutral');
+      logActivity(device.name, 'Shutdown requested', 'neutral', device.id);
       return json(res, 202, result);
     }
   }
@@ -520,7 +522,7 @@ async function handleApi(req, res, url) {
     };
     schedules.push(schedule);
     persistSchedules();
-    logActivity(device.name, `Schedule added (${schedule.time})`, 'neutral');
+    logActivity(device.name, `Schedule added (${schedule.time})`, 'neutral', device.id);
     return json(res, 201, schedule);
   }
 

@@ -28,6 +28,7 @@ Turn your Raspberry Pi into a Wake-on-LAN relay and wake, watch, and connect to 
 - **Font picker** — eight curated Japanese Google Fonts (M PLUS 1 by default), switchable in Settings and embedded at runtime instead of bundled.
 - **Host monitoring** — CPU temperature, load average, uptime, Tailscale state.
 - **PWA** — add it to your phone's home screen and it behaves like a native app, with a service-worker offline shell.
+- **Mobile UI** — icon-only capsule tab bar with a single EaseOut moving indicator under the selected item; only the active icon glows.
 - **Native mobile app** — a React Native (Expo) app ships in [mobile/](mobile/); run it instantly with Expo Go.
 - **Security** — Tailscale-first (no open ports), optional bearer-token auth, built-in DNS-rebinding and CSRF protection.
 
