@@ -27,6 +27,7 @@
 - **接続設定**: SSHユーザー・SSHポート・RDPポート・Web URL をデバイスごとにサーバー側へ保存(Web/モバイルで共有)
 - **OSアイコン**: デバイスごとに Windows / macOS / Linux / Raspberry Pi のロゴを設定可能(Font Awesome Brands)
 - **フォント設定**: 厳選した8つの日本語 Google Fonts(既定は M PLUS 1)から Settings で切り替え。フォントは埋め込み読み込みでバンドルしない
+- **Discord Bot**: `/wake` `/shutdown` `/devices` `/status` のスラッシュコマンドでDiscordから操作(Gateway接続=外向き通信のみなので公開ポート不要・依存ゼロのまま)
 - **ホスト監視**: CPU 温度・ロードアベレージ・稼働時間・Tailscale 状態
 - **PWA**: スマホのホーム画面に追加すればアプリのように起動(Service Workerによるオフラインシェル対応)
 - **モバイルUI**: アイコンだけのカプセル型タブバー。選択中の背景は1つのインジケータがEaseOutで移動し、アイコンだけが発光
@@ -83,6 +84,30 @@ bash deploy/install.sh
 | `PIWAKE_ALLOWED_HOSTS` | (空) | 追加で許可する Host ヘッダ(カンマ区切り)。IP・自ホスト名・MagicDNS は自動許可 |
 
 変更後は `sudo systemctl restart piwake`。ログは `journalctl -u piwake -f`。
+
+### Discord Bot(任意)
+
+DiscordのスラッシュコマンドでPiWakeを操作できます。BotはPiから**外向きにGateway接続**するため、公開ポートは不要です(Node.js 22+ が必要。未満なら自動で無効化されます)。
+
+1. [Discord Developer Portal](https://discord.com/developers/applications) でアプリを作成し、**Bot** を追加して Token を取得
+2. OAuth2 → URL Generator で scope に `bot` と `applications.commands` を選び、生成されたURLで自分のサーバーに招待(Bot権限は不要=0でOK)
+3. `/etc/default/piwake` に設定して再起動:
+
+```bash
+PIWAKE_DISCORD_TOKEN=<Botのトークン>
+PIWAKE_DISCORD_APP_ID=<Application ID>
+PIWAKE_DISCORD_GUILD=<サーバーID>            # 任意: コマンドが即時反映される
+PIWAKE_DISCORD_ALLOWED_USERS=<自分のユーザーID> # 任意: 操作を許可するユーザーを制限
+```
+
+| コマンド | 動作 |
+| --- | --- |
+| `/devices` | デバイス一覧と状態 |
+| `/status` | ホストの温度・負荷・稼働時間・Tailscale状態 |
+| `/wake device:<名前>` | Magic Packet送信 → 起動完了までDiscord上で追跡 |
+| `/shutdown device:<名前>` | SSH経由でシャットダウン |
+
+デバイス名はオートコンプリートされます。`PIWAKE_DISCORD_ALLOWED_USERS` 未設定の場合、Botがいるサーバーの全員が操作できる点に注意してください。
 
 ### リモートシャットダウンを使う場合
 

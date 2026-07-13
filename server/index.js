@@ -11,6 +11,7 @@ import { ping, remoteReady, tcpOpen } from './lib/probe.js';
 import { hostSnapshot } from './lib/metrics.js';
 import { scanNeighbours } from './lib/scan.js';
 import { readJson, writeJson, dataDir } from './lib/store.js';
+import { startDiscordBot } from './lib/discord.js';
 
 const PORT = Number(process.env.PIWAKE_PORT) || 8787;
 const TOKEN = process.env.PIWAKE_TOKEN || '';
@@ -626,3 +627,33 @@ server.listen(PORT, () => {
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => server.close(() => process.exit(0)));
 }
+
+// ----------------------------------------------------------- discord bot
+
+startDiscordBot({
+  token: process.env.PIWAKE_DISCORD_TOKEN || '',
+  appId: process.env.PIWAKE_DISCORD_APP_ID || '',
+  guildId: process.env.PIWAKE_DISCORD_GUILD || '',
+  allowedUsers: (process.env.PIWAKE_DISCORD_ALLOWED_USERS || '')
+    .split(',').map(entry => entry.trim()).filter(Boolean),
+  api: {
+    listDevices: () => sortedDevices().map(publicDevice),
+    hostSnapshot,
+    findDevice: query => {
+      const q = String(query).toLowerCase();
+      return devices.find(device => device.id === query)
+        || devices.find(device => device.name.toLowerCase() === q)
+        || devices.find(device => device.name.toLowerCase().includes(q));
+    },
+    wake: async device => {
+      await sendMagicPacket(device.mac, { address: BROADCAST });
+      logActivity(device.name, 'Wake via Discord', 'neutral');
+      return startWakeJob(device);
+    },
+    shutdown: async device => {
+      const result = await shutdownOverSsh(device);
+      if (result.sent) logActivity(device.name, 'Shutdown via Discord', 'neutral');
+      return result;
+    },
+  },
+});

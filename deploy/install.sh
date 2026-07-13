@@ -36,6 +36,16 @@ PIWAKE_TOKEN=
 PIWAKE_BROADCAST=255.255.255.255
 # Seconds to wait for a device to come up after a magic packet
 PIWAKE_WAKE_TIMEOUT=90
+
+# --- Discord bot (optional, requires Node.js 22+) ---
+# Create an app at https://discord.com/developers/applications, add a Bot,
+# then fill these in and restart the service.
+PIWAKE_DISCORD_TOKEN=
+PIWAKE_DISCORD_APP_ID=
+# Server (guild) ID for instant slash-command registration (optional)
+PIWAKE_DISCORD_GUILD=
+# Comma-separated Discord user IDs allowed to use the bot (empty = everyone)
+PIWAKE_DISCORD_ALLOWED_USERS=
 EOF
 fi
 

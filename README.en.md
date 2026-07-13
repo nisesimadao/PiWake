@@ -26,6 +26,7 @@ Turn your Raspberry Pi into a Wake-on-LAN relay and wake, watch, and connect to 
 - **Connection launchpad** — SSH (custom ports, command copied to clipboard), Chrome Remote Desktop, RDP, and custom web URLs (NAS dashboards, Proxmox, …), each with **live port-probe status**. Per-device SSH user/port, RDP port and web URL are stored server-side and shared between web and mobile.
 - **OS icons** — tag each device as Windows / macOS / Linux / Raspberry Pi and its logo (Font Awesome Brands) shows everywhere.
 - **Font picker** — eight curated Japanese Google Fonts (M PLUS 1 by default), switchable in Settings and embedded at runtime instead of bundled.
+- **Discord bot** — `/wake`, `/shutdown`, `/devices` and `/status` slash commands with device-name autocomplete. Connects outbound to the Discord gateway, so no ports are opened and the zero-dependency rule holds (Node.js 22+; auto-disables otherwise). Configure `PIWAKE_DISCORD_TOKEN` / `PIWAKE_DISCORD_APP_ID` (plus optional `PIWAKE_DISCORD_GUILD` and `PIWAKE_DISCORD_ALLOWED_USERS`) in `/etc/default/piwake`.
 - **Host monitoring** — CPU temperature, load average, uptime, Tailscale state.
 - **PWA** — add it to your phone's home screen and it behaves like a native app, with a service-worker offline shell.
 - **Mobile UI** — icon-only capsule tab bar with a single EaseOut moving indicator under the selected item; only the active icon glows.
