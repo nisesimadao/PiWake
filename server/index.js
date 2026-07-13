@@ -109,6 +109,23 @@ async function refreshStatuses() {
 setInterval(refreshStatuses, STATUS_INTERVAL_MS);
 refreshStatuses();
 
+// On-demand ping used by the /ping route and the Discord panel; keeps the
+// stored status in sync with what it just observed.
+async function pingDeviceNow(device) {
+  const [tailscale, lan] = await Promise.all([ping(device.ip), ping(device.localIp)]);
+  const alive = tailscale || lan;
+  const status = alive ? 'online' : 'offline';
+  if (device.status !== status) {
+    device.status = status;
+    if (alive) device.lastSeenAt = new Date().toISOString();
+    persistDevices();
+    broadcastDevices();
+  } else if (alive) {
+    device.lastSeenAt = new Date().toISOString();
+  }
+  return { alive, via: tailscale ? 'tailscale' : lan ? 'lan' : null };
+}
+
 // ------------------------------------------------------------ wake job
 
 function retireJob(job) {
@@ -459,16 +476,7 @@ async function handleApi(req, res, url) {
     }
 
     if (req.method === 'GET' && segments[3] === 'ping') {
-      const [tailscale, lan] = await Promise.all([ping(device.ip), ping(device.localIp)]);
-      const alive = tailscale || lan;
-      const status = alive ? 'online' : 'offline';
-      if (device.status !== status) {
-        device.status = status;
-        if (alive) device.lastSeenAt = new Date().toISOString();
-        persistDevices();
-        broadcastDevices();
-      }
-      return json(res, 200, { alive, via: tailscale ? 'tailscale' : lan ? 'lan' : null });
+      return json(res, 200, await pingDeviceNow(device));
     }
 
     if (req.method === 'GET' && segments[3] === 'services') {
@@ -658,6 +666,7 @@ startDiscordBot({
         || devices.find(device => device.name.toLowerCase() === q)
         || devices.find(device => device.name.toLowerCase().includes(q));
     },
+    ping: pingDeviceNow,
     wake: async device => {
       await sendMagicPacket(device.mac, { address: BROADCAST });
       logActivity(device.name, 'Wake via Discord', 'neutral');

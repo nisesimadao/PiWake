@@ -153,6 +153,21 @@ button:focus-visible, input:focus-visible { outline:2px solid var(--blue); outli
 .sa-primary:hover:not(:disabled) { background:#fb5262; }
 .sa-danger { color:#ff6258; border-color:rgba(255,69,58,.5); }
 .simple-toast { position:fixed; }
+.simple-add-tile { align-items:center; justify-content:center; gap:9px; color:var(--muted); border-style:dashed; cursor:pointer; min-height:150px; font-weight:600; font-size:13px; }
+.simple-add-tile:hover { color:var(--text); background:#171b20; }
+.modal-layer.fixed { position:fixed; }
+.modal-layer.center { align-items:center; padding:18px; overflow-y:auto; }
+.simple-detail { max-width:520px; width:100%; border-radius:24px; text-align:left; max-height:calc(100vh - 44px); overflow-y:auto; }
+.simple-detail-name { display:block; font-size:19px; letter-spacing:-.03em; }
+.simple-detail-facts { margin:14px 0 6px; }
+.simple-detail-facts dd { text-align:right; }
+.svc-up { color:var(--green); font-size:10px; font-weight:700; margin-left:6px; }
+.svc-down { color:var(--danger); font-size:10px; font-weight:700; margin-left:6px; }
+.simple-inline-link { color:var(--blue); }
+.simple-detail-actions { display:grid; grid-template-columns:1fr 1.4fr; gap:9px; margin-top:14px; }
+.simple-detail-actions .secondary-action { margin-top:0; }
+.simple-modal-title { margin:2px 0 14px; font-size:20px; text-align:center; }
+.simple-detail .manual-form { text-align:left; }
 .font-list { border:1px solid var(--line); background:var(--surface); overflow:hidden; }
 .font-row { width:100%; min-height:60px; display:flex; align-items:center; gap:12px; padding:10px 15px; border:0; border-bottom:1px solid var(--line); background:transparent; text-align:left; cursor:pointer; }
 .font-row:last-child { border-bottom:0; }

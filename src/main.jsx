@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client';
 import {
   Activity, ArrowLeft, CalendarClock, Check, ChevronRight, CircleHelp, Clock3, Cpu,
-  MonitorUp as Desktop, ExternalLink, Gauge, Globe2, Home, KeyRound, Monitor,
+  MonitorUp as Desktop, ExternalLink, Gauge, Globe2, Home, Info, KeyRound, Monitor,
   Network, Pin, Plus, Power, Radio, RefreshCw, RotateCcw, Router, Search, Server,
   Settings, ShieldCheck, SlidersHorizontal, Terminal,
   Thermometer, Trash2, Wifi, X
@@ -778,7 +778,7 @@ const wakeStateLabels = {
   cancelled: 'キャンセルしました',
 };
 
-function SimpleCard({ device, wake, pingState, onWake, onPing, onShutdown, toast }) {
+function SimpleCard({ device, wake, pingState, onWake, onPing, onShutdown, onDetail, toast }) {
   const online = device.status === 'online';
   const waking = wake && !WAKE_TERMINAL.includes(wake.state);
   return <article className={`simple-card squircle ${online ? 'is-online' : ''}`}>
@@ -801,8 +801,51 @@ function SimpleCard({ device, wake, pingState, onWake, onPing, onShutdown, toast
       <button className="sa" onClick={() => openChromeRemoteDesktop(toast)}><ExternalLink size={14} />CRD</button>
       {device.webUrl && <button className="sa" onClick={() => window.open(device.webUrl, '_blank', 'noopener')}><Globe2 size={14} />Web</button>}
       {online && <button className="sa sa-danger" onClick={onShutdown}><Power size={14} />停止</button>}
+      <button className="sa" onClick={onDetail}><Info size={14} />詳細</button>
     </div>
   </article>;
+}
+
+function SimpleDetailModal({ device, onClose, onRemove }) {
+  const [services, setServices] = useState(null);
+  const deviceId = device?.id;
+  const deviceStatus = device?.status;
+  useEffect(() => {
+    if (!isApi || !deviceId) return;
+    let cancelled = false;
+    setServices(null);
+    piwakeClient.getServices(deviceId)
+      .then(result => { if (!cancelled) setServices(result); })
+      .catch(() => { /* probe is best-effort */ });
+    return () => { cancelled = true; };
+  }, [deviceId, deviceStatus]);
+  if (!device) return null;
+  const badge = service => service == null ? null : <span className={service.up ? 'svc-up' : 'svc-down'}>{service.up ? '● Up' : '● Down'}</span>;
+  const address = reachableAddress(device);
+  return <div className="modal-layer fixed center" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+    <div className="confirm-sheet squircle simple-detail" role="dialog" aria-modal="true" aria-label={`${device.name} の詳細`}>
+      <div className="simple-head">
+        <DeviceGlyph device={device} size={34} />
+        <div><strong className="simple-detail-name">{device.name}</strong><Status value={device.status} /></div>
+      </div>
+      <dl className="facts simple-detail-facts">
+        <div><dt>MAC</dt><dd>{device.mac}</dd></div>
+        <div><dt>Local IP</dt><dd>{device.localIp || '未設定'}</dd></div>
+        <div><dt>Tailscale IP</dt><dd>{device.ip || '未設定'}</dd></div>
+        <div><dt>OS</dt><dd>{OS_OPTIONS.find(option => option.id === device.os)?.label || '—'}</dd></div>
+        <div><dt>SSH</dt><dd>{sshCommand(device) || '—'} {badge(services?.ssh)}</dd></div>
+        <div><dt>RDP</dt><dd>{address ? `${address}:${device.rdpPort || 3389}` : '—'} {badge(services?.rdp)}</dd></div>
+        {device.webUrl && <div><dt>Web</dt><dd>{device.webUrl} {badge(services?.web)}</dd></div>}
+        <div><dt>Location</dt><dd>{device.location || 'Home'}</dd></div>
+        <div><dt>Last seen</dt><dd>{deviceLast(device)}</dd></div>
+      </dl>
+      <p className="danger-note">名前・IP・ポートなどの編集は<a className="simple-inline-link" href="/">通常表示</a>から行えます。</p>
+      <div className="simple-detail-actions">
+        <button className="secondary-action danger" onClick={() => onRemove(device)}><Trash2 size={16} />削除</button>
+        <button className="primary-action" onClick={onClose}>閉じる</button>
+      </div>
+    </div>
+  </div>;
 }
 
 function SimpleApp() {
@@ -813,6 +856,8 @@ function SimpleApp() {
   const [apiIssue, setApiIssue] = useState('');
   const [wakes, setWakes] = useState({});   // deviceId -> { jobId, state, startedAt }
   const [pings, setPings] = useState({});   // deviceId -> 'busy' | 'alive' | 'dead'
+  const [detailId, setDetailId] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const toastTimer = useRef();
   const toast = useCallback(message => {
@@ -939,9 +984,41 @@ function SimpleApp() {
       .catch(() => toast('シャットダウンできませんでした（PiからのSSH鍵設定が必要です）'));
   };
 
+  const addDevice = async payload => {
+    try {
+      const created = await piwakeClient.addDevice({
+        ...payload,
+        id: isApi ? undefined : `added-${Date.now()}`,
+        status: 'offline',
+        location: payload.location || 'Home',
+      });
+      if (isApi) await refresh();
+      else setDevices(ds => [...ds, created]);
+      setShowAdd(false);
+      toast(`${payload.name}を追加しました`);
+    } catch (error) {
+      toast(error.message?.includes('already exists') ? 'このMACアドレスは登録済みです'
+        : error.status === 400 ? error.message : 'デバイスを追加できませんでした');
+    }
+  };
+
+  const removeDevice = async device => {
+    if (!window.confirm(`${device.name} を削除しますか？`)) return;
+    try {
+      await piwakeClient.removeDevice(device.id);
+      if (isApi) await refresh();
+      else setDevices(ds => ds.filter(d => d.id !== device.id));
+      setDetailId(null);
+      toast(`${device.name}を削除しました`);
+    } catch {
+      toast('削除できませんでした');
+    }
+  };
+
   const hostView = isApi && apiIssue ? { ...hostInfo, tailscaleOnline: false, tempC: null } : hostInfo;
   const tailscale = hostTailscaleState(hostView);
   const ordered = [...devices].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+  const detailDevice = devices.find(d => d.id === detailId) || null;
 
   return <div className="simple-shell">
     <header className="simple-top">
@@ -958,10 +1035,21 @@ function SimpleApp() {
     <main className="simple-grid">
       {ordered.map(device => (
         <SimpleCard key={device.id} device={device} wake={wakes[device.id]} pingState={pings[device.id]}
-          onWake={() => startWake(device)} onPing={() => doPing(device)} onShutdown={() => doShutdown(device)} toast={toast} />
+          onWake={() => startWake(device)} onPing={() => doPing(device)} onShutdown={() => doShutdown(device)}
+          onDetail={() => setDetailId(device.id)} toast={toast} />
       ))}
-      {!ordered.length && <p className="empty-row">デバイスがありません。通常表示から追加してください。</p>}
+      <button type="button" className="simple-card simple-add-tile squircle" onClick={() => setShowAdd(true)}>
+        <Plus size={22} /><span>デバイスを追加</span>
+      </button>
     </main>
+    {detailDevice && <SimpleDetailModal device={detailDevice} onClose={() => setDetailId(null)} onRemove={removeDevice} />}
+    {showAdd && <div className="modal-layer fixed center" role="presentation" onMouseDown={event => event.target === event.currentTarget && setShowAdd(false)}>
+      <div className="confirm-sheet squircle simple-detail" role="dialog" aria-modal="true" aria-label="デバイスを追加">
+        <h2 className="simple-modal-title">デバイスを追加</h2>
+        <ManualForm addDevice={addDevice} />
+        <button className="quiet-action" onClick={() => setShowAdd(false)}>キャンセル</button>
+      </div>
+    </div>}
     {toastMessage && <div className="toast simple-toast" role="status" aria-live="polite"><Check size={16} />{toastMessage}</div>}
   </div>;
 }

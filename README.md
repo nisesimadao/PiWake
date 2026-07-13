@@ -31,8 +31,8 @@
 - **接続設定**: SSHユーザー・SSHポート・RDPポート・Web URL をデバイスごとにサーバー側へ保存(Web/モバイルで共有)
 - **OSアイコン**: デバイスごとに Windows / macOS / Linux / Raspberry Pi のロゴを設定可能(Font Awesome Brands)
 - **フォント設定**: 厳選した8つの日本語 Google Fonts(既定は M PLUS 1)から Settings で切り替え。フォントは埋め込み読み込みでバンドルしない
-- **Discord Bot**: `/wake` `/shutdown` `/devices` `/status` のスラッシュコマンドでDiscordから操作(Gateway接続=外向き通信のみなので公開ポート不要・依存ゼロのまま)
-- **シンプルモード**: `/simple` を開くとタブなしの1画面ダッシュボード。全デバイスがカードで並び、起動・Ping・SSH・RDP・停止ボタンに直接アクセス(複数台の同時Wakeも進捗表示)
+- **Discord Bot**: `/devices` で**操作パネル**(セレクトメニューでデバイス選択 → ⚡起動 / 📶Ping / 🌙停止ボタン、結果はパネルがその場で更新)。`/wake` `/shutdown` `/status` のスラッシュコマンドも利用可(Gateway接続=外向き通信のみなので公開ポート不要・依存ゼロのまま)
+- **シンプルモード**: `/simple` を開くとタブなしの1画面ダッシュボード。全デバイスがカードで並び、起動・Ping・SSH・RDP・停止・詳細ボタンに直接アクセス(複数台の同時Wake進捗、詳細モーダル、デバイス追加も可能)
 - **ホスト監視**: CPU 温度・ロードアベレージ・稼働時間・Tailscale 状態
 - **PWA**: スマホのホーム画面に追加すればアプリのように起動(Service Workerによるオフラインシェル対応)
 - **モバイルUI**: アイコンだけのカプセル型タブバー。選択中の背景は1つのインジケータがEaseOutで移動し、アイコンだけが発光
@@ -107,9 +107,9 @@ PIWAKE_DISCORD_ALLOWED_USERS=<自分のユーザーID> # 任意: 操作を許可
 
 | コマンド | 動作 |
 | --- | --- |
-| `/devices` | デバイス一覧と状態 |
-| `/status` | ホストの温度・負荷・稼働時間・Tailscale状態 |
-| `/wake device:<名前>` | Magic Packet送信 → 起動完了までDiscord上で追跡 |
+| `/devices` | **操作パネル**を表示。セレクトメニューでデバイスを選ぶと ⚡起動 / 📶Ping / 🌙停止 ボタン付きの詳細パネルに切り替わり、結果はパネルがその場で更新される |
+| `/status` | ホストの温度・負荷・稼働時間・Tailscale状態(Embed表示) |
+| `/wake device:<名前>` | Magic Packet送信 → 起動完了までパネルを更新して追跡 |
 | `/shutdown device:<名前>` | SSH経由でシャットダウン |
 
 デバイス名はオートコンプリートされます。`PIWAKE_DISCORD_ALLOWED_USERS` 未設定の場合、Botがいるサーバーの全員が操作できる点に注意してください。
