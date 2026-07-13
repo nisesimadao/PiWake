@@ -669,6 +669,9 @@ function SettingsView({ setView, toast, resetDemo, apiIssue }) {
       ))}
     </section>
     <p className="danger-note font-note">フォントはGoogle Fontsから都度読み込まれます（端末やPiには保存されません）。</p>
+    <section className="setting-list squircle">
+      <button onClick={() => { window.location.href = '/simple'; }}><Monitor size={18} /><span>シンプルモードを開く（/simple）</span><ChevronRight size={17} /></button>
+    </section>
     <div className="section-label">Security</div><section className="setting-list squircle"><button><ShieldCheck size={18} /><span>Tailnet access</span><Status value={!isApi ? 'asleep' : tailnetOk ? 'online' : 'offline'}>{!isApi ? 'Demo' : tailnetOk ? 'Connected' : 'Unreachable'}</Status></button><button onClick={() => setView('diagnostics')}><Network size={18} /><span>Connection diagnostics</span><ChevronRight size={17} /></button></section>
     {runtime.mode === 'demo' && <button className="quiet-action reset-demo" type="button" onClick={resetDemo}>Reset demo data</button>}
   </main></>;
@@ -761,6 +764,207 @@ function ConnectionSetup({ device, setView, patchDevice, toast }) {
 
 const jobStateToStep = { packet_sent: 1, responding: 2, reachable: 3, ready: 4 };
 const WAKE_UI_DEADLINE_MS = 150000;
+
+// ---------------------------------------------------------- simple mode
+
+const WAKE_TERMINAL = ['ready', 'timeout', 'failed', 'cancelled'];
+const wakeStateLabels = {
+  packet_sent: '⚡ 起動信号を送信しました…',
+  responding: '📡 デバイスが応答しています…',
+  reachable: '🔗 接続を確認しています…',
+  ready: '✅ 起動しました',
+  timeout: '⏱ 応答がありません(電源・WOL設定を確認)',
+  failed: '⚠️ 起動に失敗しました',
+  cancelled: 'キャンセルしました',
+};
+
+function SimpleCard({ device, wake, pingState, onWake, onPing, onShutdown, toast }) {
+  const online = device.status === 'online';
+  const waking = wake && !WAKE_TERMINAL.includes(wake.state);
+  return <article className={`simple-card squircle ${online ? 'is-online' : ''}`}>
+    {device.pinned && <Pin size={11} className="pin-mark" />}
+    <div className="simple-head">
+      <DeviceGlyph device={device} size={30} />
+      <div><strong>{device.name}</strong><Status value={device.status} /></div>
+    </div>
+    <p className="simple-meta">{device.ip || device.localIp || 'IP未設定'} · {deviceLast(device)}</p>
+    {(wake || pingState) && <p className="simple-note">
+      {wake && wakeStateLabels[wake.state]}
+      {wake && pingState && ' · '}
+      {pingState === 'busy' ? 'Ping中…' : pingState === 'alive' ? '📶 Ping応答あり' : pingState === 'dead' ? '📴 Ping応答なし' : ''}
+    </p>}
+    <div className="simple-actions">
+      {!online && <button className="sa sa-primary" disabled={waking} onClick={onWake}><Power size={14} />{waking ? '起動中…' : '起動'}</button>}
+      <button className="sa" disabled={pingState === 'busy'} onClick={onPing}><Radio size={14} />Ping</button>
+      <button className="sa" onClick={() => openSsh(device, toast)}><Terminal size={14} />SSH</button>
+      <button className="sa" onClick={() => openRdp(device, toast)}><Desktop size={14} />RDP</button>
+      <button className="sa" onClick={() => openChromeRemoteDesktop(toast)}><ExternalLink size={14} />CRD</button>
+      {device.webUrl && <button className="sa" onClick={() => window.open(device.webUrl, '_blank', 'noopener')}><Globe2 size={14} />Web</button>}
+      {online && <button className="sa sa-danger" onClick={onShutdown}><Power size={14} />停止</button>}
+    </div>
+  </article>;
+}
+
+function SimpleApp() {
+  const [devices, setDevices] = useState(() => isApi ? [] : loadAppState(seedDevices).devices);
+  const [hostInfo, setHostInfo] = useState(isApi
+    ? { name: 'Raspberry Pi', tempC: null, load1: null, uptimeSeconds: NaN, tailscaleIp: null, tailscaleOnline: null }
+    : demoHost);
+  const [apiIssue, setApiIssue] = useState('');
+  const [wakes, setWakes] = useState({});   // deviceId -> { jobId, state, startedAt }
+  const [pings, setPings] = useState({});   // deviceId -> 'busy' | 'alive' | 'dead'
+  const [toastMessage, setToastMessage] = useState('');
+  const toastTimer = useRef();
+  const toast = useCallback(message => {
+    clearTimeout(toastTimer.current);
+    setToastMessage(message);
+    toastTimer.current = setTimeout(() => setToastMessage(''), 3200);
+  }, []);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  const refresh = useCallback(async () => {
+    if (!isApi) return;
+    try {
+      const [list, host] = await Promise.all([piwakeClient.listDevices(), piwakeClient.getHost()]);
+      if (Array.isArray(list)) setDevices(list);
+      if (host) setHostInfo(host);
+      setApiIssue('');
+    } catch (error) {
+      setApiIssue(error.status === 401 ? 'APIトークンが必要です(通常表示のSettingsで設定)' : 'PiWake APIに接続できません');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isApi) return;
+    refresh();
+    const id = setInterval(refresh, 15000);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  // SSE: instant device list + wake-job updates (keyed by deviceId).
+  useEffect(() => {
+    if (!isApi || typeof EventSource === 'undefined') return;
+    let source;
+    try { source = new EventSource(eventsUrl()); } catch { return; }
+    source.addEventListener('devices', event => {
+      try { setDevices(JSON.parse(event.data)); } catch { /* malformed */ }
+    });
+    source.addEventListener('job', event => {
+      try {
+        const job = JSON.parse(event.data);
+        setWakes(current => current[job.deviceId] ? { ...current, [job.deviceId]: { ...current[job.deviceId], state: job.state } } : current);
+      } catch { /* malformed */ }
+    });
+    return () => source.close();
+  }, []);
+
+  // Drive active wakes: poll jobs in API mode, simulate steps in demo mode.
+  useEffect(() => {
+    const active = Object.entries(wakes).filter(([, wake]) => !WAKE_TERMINAL.includes(wake.state));
+    if (!active.length) return;
+    const id = setInterval(() => {
+      for (const [deviceId, wake] of active) {
+        if (!isApi) {
+          setWakes(current => {
+            const entry = current[deviceId];
+            if (!entry || WAKE_TERMINAL.includes(entry.state)) return current;
+            const order = ['packet_sent', 'responding', 'reachable', 'ready'];
+            const next = order[Math.min(order.indexOf(entry.state) + 1, 3)];
+            if (next === 'ready') {
+              setDevices(ds => ds.map(d => d.id === deviceId ? { ...d, status: 'online', last: 'いま' } : d));
+              notifyReady(devices.find(d => d.id === deviceId)?.name || 'デバイス');
+            }
+            return { ...current, [deviceId]: { ...entry, state: next } };
+          });
+          continue;
+        }
+        if (Date.now() - wake.startedAt > WAKE_UI_DEADLINE_MS) {
+          setWakes(current => ({ ...current, [deviceId]: { ...current[deviceId], state: 'timeout' } }));
+          continue;
+        }
+        if (!wake.jobId) continue;
+        piwakeClient.getWakeJob(wake.jobId).then(job => {
+          setWakes(current => {
+            const entry = current[deviceId];
+            if (!entry || entry.state === job.state) return current;
+            if (job.state === 'ready') {
+              notifyReady(devices.find(d => d.id === deviceId)?.name || 'デバイス');
+              refresh();
+            }
+            return { ...current, [deviceId]: { ...entry, state: job.state } };
+          });
+        }).catch(() => { /* transient — deadline will cover it */ });
+      }
+    }, isApi ? 2000 : 900);
+    return () => clearInterval(id);
+  }, [wakes, devices, refresh]);
+
+  const startWake = async device => {
+    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* optional */ }
+    try {
+      const result = await piwakeClient.wakeDevice(device);
+      setWakes(current => ({ ...current, [device.id]: { jobId: result?.jobId || null, state: 'packet_sent', startedAt: Date.now() } }));
+    } catch (error) {
+      toast(error.status === 401 ? 'APIトークンが必要です' : 'Wakeリクエストを送信できませんでした');
+    }
+  };
+
+  const doPing = async device => {
+    setPings(current => ({ ...current, [device.id]: 'busy' }));
+    const finish = alive => {
+      setPings(current => ({ ...current, [device.id]: alive ? 'alive' : 'dead' }));
+      setTimeout(() => setPings(current => {
+        const { [device.id]: _gone, ...rest } = current;
+        return rest;
+      }), 6000);
+    };
+    if (!isApi) {
+      setTimeout(() => finish(device.status === 'online'), 700);
+      return;
+    }
+    try {
+      const result = await piwakeClient.pingDevice(device.id);
+      finish(Boolean(result?.alive));
+    } catch {
+      finish(false);
+      toast('Pingを実行できませんでした');
+    }
+  };
+
+  const doShutdown = device => {
+    if (!window.confirm(`${device.name} をシャットダウンしますか？`)) return;
+    if (!isApi) return toast('（デモ）シャットダウン導線を確認しました');
+    piwakeClient.shutdownDevice(device.id)
+      .then(() => toast('シャットダウン信号を送信しました'))
+      .catch(() => toast('シャットダウンできませんでした（PiからのSSH鍵設定が必要です）'));
+  };
+
+  const hostView = isApi && apiIssue ? { ...hostInfo, tailscaleOnline: false, tempC: null } : hostInfo;
+  const tailscale = hostTailscaleState(hostView);
+  const ordered = [...devices].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+
+  return <div className="simple-shell">
+    <header className="simple-top">
+      <img src="/icon.svg" alt="" className="brand-mark" />
+      <div className="simple-title"><strong>PiWake</strong><small>Simple mode</small></div>
+      <div className="simple-host">
+        <span>{hostView.name}</span>
+        <Status value={tailscale.value}>{tailscale.label}</Status>
+        {hostView.tempC != null && <span className="simple-temp"><Thermometer size={12} /> {hostView.tempC}°</span>}
+      </div>
+      <a className="simple-back" href="/">通常表示 <ChevronRight size={14} /></a>
+    </header>
+    {apiIssue && <button className="api-banner simple-banner" onClick={() => { window.location.href = '/'; }}><Wifi size={14} />{apiIssue}<ChevronRight size={14} /></button>}
+    <main className="simple-grid">
+      {ordered.map(device => (
+        <SimpleCard key={device.id} device={device} wake={wakes[device.id]} pingState={pings[device.id]}
+          onWake={() => startWake(device)} onPing={() => doPing(device)} onShutdown={() => doShutdown(device)} toast={toast} />
+      ))}
+      {!ordered.length && <p className="empty-row">デバイスがありません。通常表示から追加してください。</p>}
+    </main>
+    {toastMessage && <div className="toast simple-toast" role="status" aria-live="polite"><Check size={16} />{toastMessage}</div>}
+  </div>;
+}
 
 function App() {
   const initialState = useMemo(() => loadAppState(seedDevices), []);
@@ -1023,7 +1227,8 @@ function App() {
 }
 
 initFont();
-createRoot(document.getElementById('root')).render(<App />);
+const simpleMode = window.location.pathname.replace(/\/+$/, '') === '/simple';
+createRoot(document.getElementById('root')).render(simpleMode ? <SimpleApp /> : <App />);
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {

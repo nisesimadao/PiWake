@@ -217,6 +217,11 @@ test('os, port and webUrl fields validate and round-trip', async () => {
   assert.equal(typeof services.ssh.up, 'boolean');
   assert.equal(services.web.url, 'http://127.0.0.1:5000');
 
+  const pinged = await fetch(`${open.base}/api/devices/${device.id}/ping`).then(r => r.json());
+  assert.equal(typeof pinged.alive, 'boolean');
+  assert.equal(pinged.alive, true); // localIp is 127.0.0.1
+  assert.ok(['tailscale', 'lan'].includes(pinged.via));
+
   await fetch(`${open.base}/api/devices/${device.id}`, { method: 'DELETE' });
 });
 

@@ -458,6 +458,19 @@ async function handleApi(req, res, url) {
       return json(res, 202, { jobId: job.id, deviceId: device.id, state: job.state });
     }
 
+    if (req.method === 'GET' && segments[3] === 'ping') {
+      const [tailscale, lan] = await Promise.all([ping(device.ip), ping(device.localIp)]);
+      const alive = tailscale || lan;
+      const status = alive ? 'online' : 'offline';
+      if (device.status !== status) {
+        device.status = status;
+        if (alive) device.lastSeenAt = new Date().toISOString();
+        persistDevices();
+        broadcastDevices();
+      }
+      return json(res, 200, { alive, via: tailscale ? 'tailscale' : lan ? 'lan' : null });
+    }
+
     if (req.method === 'GET' && segments[3] === 'services') {
       const address = device.ip || device.localIp;
       const [sshPort, rdpPort] = devicePorts(device);

@@ -15,6 +15,10 @@
 | --- | --- |
 | ![PiWake desktop](docs/screenshot-desktop.png) | <img src="docs/screenshot-mobile.png" width="260" alt="PiWake mobile"> |
 
+**シンプルモード(`/simple`)** — タブなしでデバイス操作だけを1画面に:
+
+![PiWake simple mode](docs/screenshot-simple.png)
+
 ## できること
 
 - **Wake-on-LAN**: Pi から Magic Packet を送信し、ping / SSH・RDP ポートの応答を段階的に確認しながら「起動 → 接続可能」まで追跡。完了時はブラウザ通知
@@ -28,6 +32,7 @@
 - **OSアイコン**: デバイスごとに Windows / macOS / Linux / Raspberry Pi のロゴを設定可能(Font Awesome Brands)
 - **フォント設定**: 厳選した8つの日本語 Google Fonts(既定は M PLUS 1)から Settings で切り替え。フォントは埋め込み読み込みでバンドルしない
 - **Discord Bot**: `/wake` `/shutdown` `/devices` `/status` のスラッシュコマンドでDiscordから操作(Gateway接続=外向き通信のみなので公開ポート不要・依存ゼロのまま)
+- **シンプルモード**: `/simple` を開くとタブなしの1画面ダッシュボード。全デバイスがカードで並び、起動・Ping・SSH・RDP・停止ボタンに直接アクセス(複数台の同時Wakeも進捗表示)
 - **ホスト監視**: CPU 温度・ロードアベレージ・稼働時間・Tailscale 状態
 - **PWA**: スマホのホーム画面に追加すればアプリのように起動(Service Workerによるオフラインシェル対応)
 - **モバイルUI**: アイコンだけのカプセル型タブバー。選択中の背景は1つのインジケータがEaseOutで移動し、アイコンだけが発光
@@ -161,6 +166,7 @@ npm start          # ビルド + API + Web コンソール配信
 | `DELETE` | `/api/devices/:id` | デバイス削除 |
 | `POST` | `/api/devices/:id/wake` | Magic Packet 送信 + Wake ジョブ開始 |
 | `POST` | `/api/devices/:id/shutdown` | SSH 経由でシャットダウン(カスタムポート対応) |
+| `GET` | `/api/devices/:id/ping` | その場でping確認(結果に応じて状態も更新) |
 | `GET` | `/api/devices/:id/services` | SSH / RDP / Web の稼働状態をポート死活で確認 |
 | `GET` | `/api/jobs/:id` | Wake ジョブの進捗(`packet_sent` → `responding` → `reachable` → `ready`) |
 | `DELETE` | `/api/jobs/:id` | Wake ジョブのキャンセル |
