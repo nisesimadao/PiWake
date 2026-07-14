@@ -32,12 +32,51 @@ async function tailscaleOnline() {
   try { return JSON.parse(out).BackendState === 'Running'; } catch { return null; }
 }
 
+let lastCpuInfo = os.cpus();
+let lastCpuTime = Date.now();
+
+function getCpuUsage() {
+  const currentCpuInfo = os.cpus();
+  const now = Date.now();
+  if (now - lastCpuTime < 100 && lastCpuInfo === currentCpuInfo) {
+    // Too fast or same info
+  } else {
+    let idleDiff = 0;
+    let totalDiff = 0;
+    for (let i = 0; i < currentCpuInfo.length; i++) {
+      const current = currentCpuInfo[i].times;
+      const last = lastCpuInfo[i].times;
+      const currentTotal = current.user + current.nice + current.sys + current.idle + current.irq;
+      const lastTotal = last.user + last.nice + last.sys + last.idle + last.irq;
+      totalDiff += currentTotal - lastTotal;
+      idleDiff += current.idle - last.idle;
+    }
+    lastCpuInfo = currentCpuInfo;
+    lastCpuTime = now;
+    if (totalDiff > 0) return Math.round(100 - (100 * idleDiff / totalDiff));
+  }
+  return null; // fallback
+}
+
+function getMemInfo() {
+  const total = os.totalmem();
+  const free = os.freemem();
+  const used = total - free;
+  return {
+    total,
+    free,
+    used,
+    pct: Math.round((used / total) * 100)
+  };
+}
+
 export async function hostSnapshot() {
   const [temp, tailscaleIp, tsOnline] = await Promise.all([
     readCpuTempC(),
     readTailscaleIp(),
     tailscaleOnline(),
   ]);
+  const cpuPct = getCpuUsage();
   return {
     name: os.hostname(),
     tempC: temp,
@@ -46,5 +85,7 @@ export async function hostSnapshot() {
     tailscaleIp,
     tailscaleOnline: tsOnline,
     platform: `${os.type()} ${os.release()} ${os.arch()}`,
+    cpuPct: cpuPct != null ? cpuPct : 0,
+    mem: getMemInfo(),
   };
 }

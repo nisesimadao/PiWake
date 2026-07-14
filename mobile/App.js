@@ -16,7 +16,7 @@ import { colors } from './src/theme';
 import { OsIcon, OS_OPTIONS } from './src/osIcons';
 import { getConfig, isDemo, loadConfig, piwakeClient, saveConfig } from './src/piwakeClient';
 
-const demoHost = { name: 'raspberrypi-5', tempC: 46, load1: 0.2, uptimeSeconds: 195000, tailscaleIp: '100.100.1.1', tailscaleOnline: true };
+const demoHost = { name: 'raspberrypi-5', tempC: 46, load1: 0.2, uptimeSeconds: 195000, tailscaleIp: '100.100.1.1', tailscaleOnline: true, cpuPct: 15, mem: { used: 1024*1024*1024, total: 4096*1024*1024, pct: 25 } };
 const seedDevices = [
   { id: 'main', name: 'Main PC', kind: 'pc', os: 'windows', ip: '100.100.1.23', mac: 'D4:5D:64:12:34:56', status: 'offline', last: '3日前', location: 'Home Office' },
   { id: 'sub', name: 'Sub PC', kind: 'pc', os: 'macos', ip: '100.100.1.42', mac: '8C:47:BE:20:11:08', status: 'offline', last: '昨日', location: 'Desk' },
@@ -167,9 +167,11 @@ function HostBar({ hostInfo, onOpen }) {
         <Text style={s.hostName}>{hostInfo.name}</Text>
         <StatusPill value={tailscale.value} label={tailscale.label} />
       </View>
-      {hostInfo.tempC != null && (
-        <View style={s.hostMeta}><Thermometer size={13} color={colors.muted} /><Text style={s.hostMetaText}>{hostInfo.tempC}°</Text></View>
-      )}
+      <View style={{ flexDirection: 'row', gap: 8, marginRight: 8 }}>
+        {hostInfo.cpuPct != null && <View style={s.hostMeta}><Cpu size={13} color={colors.muted} /><Text style={s.hostMetaText}>{hostInfo.cpuPct}%</Text></View>}
+        {hostInfo.mem != null && <View style={s.hostMeta}><Server size={13} color={colors.muted} /><Text style={s.hostMetaText}>{hostInfo.mem.pct}%</Text></View>}
+        {hostInfo.tempC != null && <View style={s.hostMeta}><Thermometer size={13} color={colors.muted} /><Text style={s.hostMetaText}>{hostInfo.tempC}°</Text></View>}
+      </View>
       <ChevronRight size={18} color={colors.muted} />
     </Pressable>
   );
@@ -936,10 +938,12 @@ function HostDetail({ setView, toast, hostInfo, shutdownHost }) {
             <StatusPill value={tailscale.value} label={tailscale.label} />
           </View>
         </View>
-        <Card style={s.metrics}>
-          <View style={s.metric}><Thermometer size={16} color={colors.muted} /><Text style={s.metricValue}>{hostInfo.tempC != null ? `${hostInfo.tempC}°` : '—'}</Text><Text style={s.metricLabel}>CPU temp</Text></View>
-          <View style={[s.metric, s.metricBorder]}><Gauge size={16} color={colors.muted} /><Text style={s.metricValue}>{hostInfo.load1 != null ? String(hostInfo.load1) : '—'}</Text><Text style={s.metricLabel}>Load avg</Text></View>
-          <View style={s.metric}><Clock3 size={16} color={colors.muted} /><Text style={s.metricValue}>{formatUptime(hostInfo.uptimeSeconds)}</Text><Text style={s.metricLabel}>Uptime</Text></View>
+        <Card style={[s.metrics, { flexWrap: 'wrap', gap: 12, rowGap: 16 }]}>
+          <View style={s.metric}><Cpu size={16} color={colors.muted} /><Text style={s.metricValue}>{hostInfo.cpuPct != null ? `${hostInfo.cpuPct}%` : '—'}</Text><Text style={s.metricLabel}>CPU</Text></View>
+          <View style={[s.metric, s.metricBorder]}><Server size={16} color={colors.muted} /><Text style={s.metricValue}>{hostInfo.mem != null ? `${hostInfo.mem.pct}%` : '—'}</Text><Text style={s.metricLabel}>RAM</Text></View>
+          <View style={[s.metric, s.metricBorder]}><Thermometer size={16} color={colors.muted} /><Text style={s.metricValue}>{hostInfo.tempC != null ? `${hostInfo.tempC}°` : '—'}</Text><Text style={s.metricLabel}>Temp</Text></View>
+          <View style={s.metric}><Gauge size={16} color={colors.muted} /><Text style={s.metricValue}>{hostInfo.load1 != null ? String(hostInfo.load1) : '—'}</Text><Text style={s.metricLabel}>Load avg</Text></View>
+          <View style={[s.metric, s.metricBorder]}><Clock3 size={16} color={colors.muted} /><Text style={s.metricValue}>{formatUptime(hostInfo.uptimeSeconds)}</Text><Text style={s.metricLabel}>Uptime</Text></View>
         </Card>
         <SectionLabel>CONNECT TO THIS PI</SectionLabel>
         <Card>

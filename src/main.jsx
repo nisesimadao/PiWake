@@ -15,7 +15,7 @@ import { eventsUrl, getApiToken, piwakeClient, runtime, setApiToken } from './se
 
 const isApi = runtime.mode === 'api';
 
-const demoHost = { name: 'raspberrypi-5', tempC: 46, load1: 0.2, uptimeSeconds: 195000, tailscaleIp: '100.100.1.1', tailscaleOnline: true };
+const demoHost = { name: 'raspberrypi-5', tempC: 46, load1: 0.2, uptimeSeconds: 195000, tailscaleIp: '100.100.1.1', tailscaleOnline: true, cpuPct: 15, mem: { used: 1024*1024*1024, total: 4096*1024*1024, pct: 25 } };
 const seedDevices = [
   { id: 'main', name: 'Main PC', kind: 'pc', os: 'windows', osSource: 'inferred', ip: '100.100.1.23', mac: 'D4:5D:64:12:34:56', status: 'offline', last: '3日前', location: 'Home Office' },
   { id: 'sub', name: 'Sub Mac', kind: 'pc', os: 'macos', osSource: 'inferred', ip: '100.100.1.42', mac: '8C:47:BE:20:11:08', status: 'offline', last: '昨日', location: 'Desk' },
@@ -125,6 +125,8 @@ function HostBar({ hostInfo, onOpen }) {
     <button className="host-bar squircle" onClick={onOpen}>
       <span className="host-mark"><OsIcon os="raspberrypi" size={20} /></span>
       <span className="host-copy"><strong>{hostInfo.name}</strong><Status value={tailscale.value}>{tailscale.label}</Status></span>
+      {hostInfo.cpuPct != null && <span className="host-meta"><Cpu size={14} /> {hostInfo.cpuPct}%</span>}
+      {hostInfo.mem != null && <span className="host-meta"><Server size={14} /> {hostInfo.mem.pct}%</span>}
       {hostInfo.tempC != null && <span className="host-meta"><Thermometer size={14} /> {hostInfo.tempC}°</span>}
       <ChevronRight size={18} />
     </button>
@@ -516,6 +518,8 @@ function HostDetail({ setView, toast, hostInfo, apiOk, shutdownHost }) {
     <main className="screen-body detail-body">
       <section className="host-hero"><span className="host-mark large"><OsIcon os="raspberrypi" size={32} /></span><div><h1>{hostInfo.name}</h1><Status value={tailscale.value}>{tailscale.label}</Status></div></section>
       <section className="host-metrics squircle">
+        <div><Cpu /><strong>{hostInfo.cpuPct != null ? `${hostInfo.cpuPct}%` : '—'}</strong><span>CPU usage</span></div>
+        <div><Server /><strong>{hostInfo.mem != null ? `${hostInfo.mem.pct}%` : '—'}</strong><span>RAM usage</span></div>
         <div><Thermometer /><strong>{hostInfo.tempC != null ? `${hostInfo.tempC}°` : '—'}</strong><span>CPU temp</span></div>
         <div><Gauge /><strong>{hostInfo.load1 != null ? hostInfo.load1 : '—'}</strong><span>Load avg</span></div>
         <div><Clock3 /><strong>{formatUptime(hostInfo.uptimeSeconds)}</strong><span>Uptime</span></div>
@@ -1027,6 +1031,8 @@ function SimpleApp() {
       <div className="simple-host">
         <span>{hostView.name}</span>
         <Status value={tailscale.value}>{tailscale.label}</Status>
+        {hostView.cpuPct != null && <span className="simple-temp"><Cpu size={12} /> {hostView.cpuPct}%</span>}
+        {hostView.mem != null && <span className="simple-temp"><Server size={12} /> {hostView.mem.pct}%</span>}
         {hostView.tempC != null && <span className="simple-temp"><Thermometer size={12} /> {hostView.tempC}°</span>}
       </div>
       <a className="simple-back" href="/">通常表示 <ChevronRight size={14} /></a>

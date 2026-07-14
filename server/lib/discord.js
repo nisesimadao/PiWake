@@ -377,6 +377,8 @@ class DiscordBot {
         color: host.tailscaleOnline ? COLOR_ONLINE : COLOR_ACCENT,
         fields: [
           { name: 'Tailscale', value: host.tailscaleOnline ? '🟢 connected' : '🔴 offline', inline: true },
+          { name: 'CPU使用率', value: host.cpuPct != null ? `${host.cpuPct}%` : '—', inline: true },
+          { name: 'RAM使用率', value: host.mem != null ? `${host.mem.pct}%` : '—', inline: true },
           { name: 'CPU温度', value: host.tempC != null ? `${host.tempC}°C` : '—', inline: true },
           { name: 'Load avg', value: String(host.load1 ?? '—'), inline: true },
           { name: 'Uptime', value: formatUptime(host.uptimeSeconds), inline: true },
