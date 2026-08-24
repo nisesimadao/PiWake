@@ -2,6 +2,12 @@
   "name": "piwake",
   "private": true,
   "version": "1.0.0",
+  "description": "Self-hosted Raspberry Pi Wake-on-LAN dashboard with Tailscale-first remote access, scheduling, monitoring and Discord controls.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nisesimadao/PiWake.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=18"

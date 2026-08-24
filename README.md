@@ -1,7 +1,7 @@
 <p align="center"><img src="docs/logo.png" width="460" alt="PiWake — Wake your home, from anywhere."></p>
 
 <p>
-  <img alt="Node.js 18+" src="https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white">
+  <a href="https://github.com/nisesimadao/PiWake/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/nisesimadao/PiWake/actions/workflows/ci.yml/badge.svg"></a>`r`n  <img alt="Node.js 18+" src="https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white">
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
   <img alt="Zero server dependencies" src="https://img.shields.io/badge/server%20deps-zero-f04454">
   <img alt="PWA ready" src="https://img.shields.io/badge/PWA-ready-5a0fc8">
